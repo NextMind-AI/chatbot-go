@@ -115,7 +115,3 @@ func (c *Client) ClearChatHistory(userID string) error {
 	key := fmt.Sprintf("chat_history:%s", userID)
 	return c.rdb.Del(c.ctx, key).Err()
 }
-
-func (c *Client) Close() error {
-	return c.rdb.Close()
-}
