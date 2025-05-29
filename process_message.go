@@ -3,13 +3,47 @@ package main
 import (
 	"chatbot/redis"
 	"context"
+	"sync"
 
 	"github.com/openai/openai-go"
 	"github.com/rs/zerolog/log"
 )
 
+type UserExecution struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+var (
+	userExecutions = make(map[string]*UserExecution)
+	executionMutex sync.RWMutex
+)
+
 func processMessage(message InboundMessage) {
 	log.Info().Str("message_uuid", message.MessageUUID).Msg("Processing message")
+
+	userID := message.From
+
+	executionMutex.Lock()
+	if existingExecution, exists := userExecutions[userID]; exists {
+		log.Info().Str("user_id", userID).Msg("Cancelling previous execution for user")
+		existingExecution.cancel()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	userExecutions[userID] = &UserExecution{
+		ctx:    ctx,
+		cancel: cancel,
+	}
+	executionMutex.Unlock()
+
+	defer func() {
+		executionMutex.Lock()
+		if execution, exists := userExecutions[userID]; exists && execution.ctx == ctx {
+			delete(userExecutions, userID)
+		}
+		executionMutex.Unlock()
+	}()
 
 	log.Debug().Str("message_uuid", message.MessageUUID).Msg("Marking message as read")
 	err := VonageClient.MarkMessageAsRead(message.MessageUUID)
@@ -20,13 +54,18 @@ func processMessage(message InboundMessage) {
 			Msg("Error marking message as read")
 	}
 
-	userID := message.From
-
 	if err := RedisClient.AddUserMessage(userID, message.Text); err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", userID).
 			Msg("Error storing user message in Redis")
+	}
+
+	select {
+	case <-ctx.Done():
+		log.Info().Str("user_id", userID).Msg("Message processing cancelled after storing user message")
+		return
+	default:
 	}
 
 	chatHistory, err := RedisClient.GetChatHistory(userID)
@@ -48,13 +87,20 @@ func processMessage(message InboundMessage) {
 		}
 	}
 
+	select {
+	case <-ctx.Done():
+		log.Info().Str("user_id", userID).Msg("Message processing cancelled before OpenAI call")
+		return
+	default:
+	}
+
 	log.Debug().
 		Int("message_count", len(messages)).
 		Str("user_id", userID).
 		Msg("Using OpenAI client with historical messages")
 
 	chatCompletion, err := OpenAIClient.Chat.Completions.New(
-		context.TODO(),
+		ctx,
 		openai.ChatCompletionNewParams{
 			Messages: messages,
 			Model:    openai.ChatModelGPT4_1Mini,
@@ -67,6 +113,13 @@ func processMessage(message InboundMessage) {
 			Str("user_id", userID).
 			Msg("Error creating chat completion")
 		return
+	}
+
+	select {
+	case <-ctx.Done():
+		log.Info().Str("user_id", userID).Msg("Message processing cancelled after OpenAI call")
+		return
+	default:
 	}
 
 	botResponse := chatCompletion.Choices[0].Message.Content

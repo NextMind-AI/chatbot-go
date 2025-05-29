@@ -36,7 +36,7 @@ func inboundMessage(c fiber.Ctx) error {
 		Str("text", message.Text).
 		Msg("Parsed inbound message")
 
-	processMessage(message)
+	go processMessage(message)
 
 	return c.SendStatus(fiber.StatusOK)
 }
