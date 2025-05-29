@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-
-	"github.com/rs/zerolog/log"
 )
 
 func (c *Client) sendMessageRequest(method, url string, body any) (*MessageResponse, error) {
@@ -18,7 +16,6 @@ func (c *Client) sendMessageRequest(method, url string, body any) (*MessageRespo
 
 	var messageResponse MessageResponse
 	if err := json.Unmarshal(respBody, &messageResponse); err != nil {
-		log.Error().Err(err).Str("method", method).Str("url", url).Msg("Error unmarshaling response")
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
@@ -26,21 +23,13 @@ func (c *Client) sendMessageRequest(method, url string, body any) (*MessageRespo
 }
 
 func (c *Client) sendRequest(method, url string, body any) ([]byte, error) {
-	log.Debug().
-		Str("method", method).
-		Str("url", url).
-		Interface("body", body).
-		Msg("Sending HTTP request")
-
 	payload, err := json.Marshal(body)
 	if err != nil {
-		log.Error().Err(err).Str("method", method).Str("url", url).Msg("Error marshaling payload")
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(payload))
 	if err != nil {
-		log.Error().Err(err).Str("method", method).Str("url", url).Msg("Error creating HTTP request")
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -48,29 +37,16 @@ func (c *Client) sendRequest(method, url string, body any) ([]byte, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		log.Error().Err(err).Str("method", method).Str("url", url).Msg("Error sending HTTP request")
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	log.Debug().
-		Str("method", method).
-		Str("url", url).
-		Int("status_code", resp.StatusCode).
-		Msg("Received HTTP response")
-
 	if !c.isSuccessStatusCode(resp.StatusCode) {
-		log.Warn().
-			Str("method", method).
-			Str("url", url).
-			Int("status_code", resp.StatusCode).
-			Msg("Unexpected HTTP status code")
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Error().Err(err).Str("method", method).Str("url", url).Msg("Error reading response body")
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 

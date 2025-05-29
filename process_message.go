@@ -11,7 +11,14 @@ import (
 func processMessage(message InboundMessage) {
 	log.Info().Str("message_uuid", message.MessageUUID).Msg("Processing message")
 
-	VonageClient.MarkMessageAsRead(message.MessageUUID)
+	log.Debug().Str("message_uuid", message.MessageUUID).Msg("Marking message as read")
+	err := VonageClient.MarkMessageAsRead(message.MessageUUID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("message_uuid", message.MessageUUID).
+			Msg("Error marking message as read")
+	}
 
 	userID := message.From
 
@@ -75,6 +82,21 @@ func processMessage(message InboundMessage) {
 			Msg("Error storing bot message in Redis")
 	}
 
-	VonageClient.SendWhatsAppTextMessage(message.From, "5563936180023", botResponse)
+	log.Debug().
+		Str("to", message.From).
+		Str("from", "5563936180023").
+		Str("text", botResponse).
+		Msg("Sending WhatsApp text message")
+
+	_, err = VonageClient.SendWhatsAppTextMessage(message.From, "5563936180023", botResponse)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", userID).
+			Str("to", message.From).
+			Msg("Error sending WhatsApp message")
+		return
+	}
+
 	log.Info().Str("user_id", userID).Msg("Sent WhatsApp message")
 }
