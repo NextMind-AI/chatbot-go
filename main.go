@@ -4,6 +4,7 @@ import (
 	"chatbot/config"
 	"chatbot/redis"
 	"chatbot/vonage"
+	"net/http"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/openai/openai-go"
@@ -18,14 +19,18 @@ var RedisClient redis.Client
 func main() {
 	var appConfig = config.Load()
 
+	var httpClient = http.Client{}
+
 	VonageClient = vonage.NewClient(
 		appConfig.VonageJWT,
 		appConfig.GeospecificMessagesAPIURL,
 		appConfig.MessagesAPIURL,
+		httpClient,
 	)
 
 	OpenAIClient = openai.NewClient(
 		option.WithAPIKey(appConfig.OpenAIKey),
+		option.WithHTTPClient(&httpClient),
 	)
 
 	RedisClient = redis.NewClient(
