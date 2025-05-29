@@ -4,27 +4,11 @@ import (
 	"chatbot/config"
 	"chatbot/vonage"
 	"log"
-	"net/http"
 
+	"github.com/gofiber/fiber/v3"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 )
-
-type Profile struct {
-	Name string `json:"name"`
-}
-
-type InboundMessage struct {
-	Channel       string  `json:"channel"`
-	ContextStatus string  `json:"context_status"`
-	From          string  `json:"from"`
-	MessageType   string  `json:"message_type"`
-	MessageUUID   string  `json:"message_uuid"`
-	Profile       Profile `json:"profile"`
-	Text          string  `json:"text"`
-	Timestamp     string  `json:"timestamp"`
-	To            string  `json:"to"`
-}
 
 var VonageClient vonage.Client
 var OpenAIClient openai.Client
@@ -42,11 +26,13 @@ func main() {
 		option.WithAPIKey(appConfig.OpenAIKey),
 	)
 
-	http.HandleFunc("POST /webhooks/inbound-message", inboundMessage)
-	http.HandleFunc("POST /webhooks/status", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+	app := fiber.New()
+
+	app.Post("/webhooks/inbound-message", inboundMessage)
+	app.Post("/webhooks/status", func(c fiber.Ctx) error {
+		return c.SendStatus(fiber.StatusOK)
 	})
 
 	log.Printf("Server starting on :%s\n", appConfig.Port)
-	log.Fatal(http.ListenAndServe(":"+appConfig.Port, nil))
+	log.Fatal(app.Listen(":" + appConfig.Port))
 }
