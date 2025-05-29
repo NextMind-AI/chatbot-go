@@ -21,7 +21,7 @@ type InboundMessage struct {
 	To            string  `json:"to"`
 }
 
-func inboundMessage(c fiber.Ctx) error {
+func inboundMessageHandler(c fiber.Ctx) error {
 	log.Info().Msg("Received inbound message request")
 
 	var message InboundMessage

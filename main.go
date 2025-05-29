@@ -41,10 +41,7 @@ func main() {
 
 	app := fiber.New()
 
-	app.Post("/webhooks/inbound-message", inboundMessage)
-	app.Post("/webhooks/status", func(c fiber.Ctx) error {
-		return c.SendStatus(fiber.StatusOK)
-	})
+	app.Post("/webhooks/inbound-message", inboundMessageHandler)
 
 	log.Info().Str("port", appConfig.Port).Msg("Starting chatbot server")
 
