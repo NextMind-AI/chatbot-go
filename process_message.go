@@ -45,7 +45,6 @@ func processMessage(message InboundMessage) {
 		executionMutex.Unlock()
 	}()
 
-	log.Debug().Str("message_uuid", message.MessageUUID).Msg("Marking message as read")
 	err := VonageClient.MarkMessageAsRead(message.MessageUUID)
 	if err != nil {
 		log.Error().
@@ -100,11 +99,6 @@ func processMessage(message InboundMessage) {
 	default:
 	}
 
-	log.Debug().
-		Int("message_count", len(messages)).
-		Str("user_id", userID).
-		Msg("Using OpenAI client with historical messages")
-
 	chatCompletion, err := OpenAIClient.Chat.Completions.New(
 		ctx,
 		openai.ChatCompletionNewParams{
@@ -129,10 +123,6 @@ func processMessage(message InboundMessage) {
 	}
 
 	botResponse := chatCompletion.Choices[0].Message.Content
-	log.Debug().
-		Str("user_id", userID).
-		Str("response", botResponse).
-		Msg("Received chat completion")
 
 	if err := RedisClient.AddBotMessage(userID, botResponse); err != nil {
 		log.Error().
@@ -140,12 +130,6 @@ func processMessage(message InboundMessage) {
 			Str("user_id", userID).
 			Msg("Error storing bot message in Redis")
 	}
-
-	log.Debug().
-		Str("to", message.From).
-		Str("from", "5563936180023").
-		Str("text", botResponse).
-		Msg("Sending WhatsApp text message")
 
 	_, err = VonageClient.SendWhatsAppTextMessage(message.From, "5563936180023", botResponse)
 	if err != nil {

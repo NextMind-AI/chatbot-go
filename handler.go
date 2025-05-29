@@ -30,12 +30,6 @@ func inboundMessage(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).SendString("Error parsing JSON")
 	}
 
-	log.Debug().
-		Str("message_uuid", message.MessageUUID).
-		Str("from", message.From).
-		Str("text", message.Text).
-		Msg("Parsed inbound message")
-
 	go processMessage(message)
 
 	return c.SendStatus(fiber.StatusOK)
