@@ -10,7 +10,9 @@ import (
 // convertChatHistory converts Redis chat messages to OpenAI message format.
 // It transforms the chat history from the Redis format to the format expected by OpenAI's API.
 func convertChatHistory(chatHistory []redis.ChatMessage) []openai.ChatCompletionMessageParamUnion {
-	messages := []openai.ChatCompletionMessageParamUnion{}
+	messages := []openai.ChatCompletionMessageParamUnion{
+		openai.SystemMessage(systemPrompt),
+	}
 	for _, msg := range chatHistory {
 		switch msg.Role {
 		case "user":
