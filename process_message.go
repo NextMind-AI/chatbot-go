@@ -1,49 +1,22 @@
 package main
 
 import (
+	"chatbot/execution"
 	"chatbot/redis"
-	"context"
-	"sync"
 
 	"github.com/openai/openai-go"
 	"github.com/rs/zerolog/log"
 )
 
-type UserExecution struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-}
-
-var (
-	userExecutions = make(map[string]*UserExecution)
-	executionMutex sync.RWMutex
-)
+var executionManager = execution.NewManager()
 
 func processMessage(message InboundMessage) {
 	log.Info().Str("message_uuid", message.MessageUUID).Msg("Processing message")
 
 	userID := message.From
 
-	executionMutex.Lock()
-	if existingExecution, exists := userExecutions[userID]; exists {
-		log.Info().Str("user_id", userID).Msg("Cancelling previous execution for user")
-		existingExecution.cancel()
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	userExecutions[userID] = &UserExecution{
-		ctx:    ctx,
-		cancel: cancel,
-	}
-	executionMutex.Unlock()
-
-	defer func() {
-		executionMutex.Lock()
-		if execution, exists := userExecutions[userID]; exists && execution.ctx == ctx {
-			delete(userExecutions, userID)
-		}
-		executionMutex.Unlock()
-	}()
+	ctx := executionManager.Start(userID)
+	defer executionManager.Cleanup(userID, ctx)
 
 	err := VonageClient.MarkMessageAsRead(message.MessageUUID)
 	if err != nil {
@@ -94,7 +67,9 @@ func processMessage(message InboundMessage) {
 
 	select {
 	case <-ctx.Done():
-		log.Info().Str("user_id", userID).Msg("Message processing cancelled before OpenAI call")
+		log.Info().
+			Str("user_id", userID).
+			Msg("Message processing cancelled before OpenAI call")
 		return
 	default:
 	}
@@ -117,7 +92,9 @@ func processMessage(message InboundMessage) {
 
 	select {
 	case <-ctx.Done():
-		log.Info().Str("user_id", userID).Msg("Message processing cancelled after OpenAI call")
+		log.Info().
+			Str("user_id", userID).
+			Msg("Message processing cancelled after OpenAI call")
 		return
 	default:
 	}
