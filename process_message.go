@@ -3,6 +3,7 @@ package main
 import (
 	"chatbot/execution"
 	"chatbot/redis"
+	"context"
 
 	"github.com/openai/openai-go"
 	"github.com/rs/zerolog/log"
@@ -18,8 +19,7 @@ func processMessage(message InboundMessage) {
 	ctx := executionManager.Start(userID)
 	defer executionManager.Cleanup(userID, ctx)
 
-	err := VonageClient.MarkMessageAsRead(message.MessageUUID)
-	if err != nil {
+	if err := VonageClient.MarkMessageAsRead(message.MessageUUID); err != nil {
 		log.Error().
 			Err(err).
 			Str("message_uuid", message.MessageUUID).
@@ -37,15 +37,6 @@ func processMessage(message InboundMessage) {
 			Msg("Error storing user message in Redis")
 	}
 
-	select {
-	case <-ctx.Done():
-		log.Info().
-			Str("user_id", userID).
-			Msg("Message processing cancelled after storing user message")
-		return
-	default:
-	}
-
 	chatHistory, err := RedisClient.GetChatHistory(userID)
 	if err != nil {
 		log.Error().
@@ -56,22 +47,17 @@ func processMessage(message InboundMessage) {
 	}
 
 	messages := []openai.ChatCompletionMessageParamUnion{}
-
 	for _, msg := range chatHistory {
-		if msg.Role == "user" {
+		switch msg.Role {
+		case "user":
 			messages = append(messages, openai.UserMessage(msg.Content))
-		} else if msg.Role == "assistant" {
+		case "assistant":
 			messages = append(messages, openai.AssistantMessage(msg.Content))
 		}
 	}
 
-	select {
-	case <-ctx.Done():
-		log.Info().
-			Str("user_id", userID).
-			Msg("Message processing cancelled before OpenAI call")
+	if cancelled(ctx, userID, "before OpenAI call") {
 		return
-	default:
 	}
 
 	chatCompletion, err := OpenAIClient.Chat.Completions.New(
@@ -81,7 +67,6 @@ func processMessage(message InboundMessage) {
 			Model:    openai.ChatModelGPT4_1Mini,
 		},
 	)
-
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -90,13 +75,8 @@ func processMessage(message InboundMessage) {
 		return
 	}
 
-	select {
-	case <-ctx.Done():
-		log.Info().
-			Str("user_id", userID).
-			Msg("Message processing cancelled after OpenAI call")
+	if cancelled(ctx, userID, "after OpenAI call") {
 		return
-	default:
 	}
 
 	botResponse := chatCompletion.Choices[0].Message.Content
@@ -119,4 +99,14 @@ func processMessage(message InboundMessage) {
 	}
 
 	log.Info().Str("user_id", userID).Msg("Sent WhatsApp message")
+}
+
+func cancelled(ctx context.Context, userID, stage string) bool {
+	if ctx.Err() != nil {
+		log.Info().
+			Str("user_id", userID).
+			Msg("Message processing cancelled " + stage)
+		return true
+	}
+	return false
 }
