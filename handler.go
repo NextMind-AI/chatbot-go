@@ -1,9 +1,8 @@
 package main
 
 import (
-	"log"
-
 	"github.com/gofiber/fiber/v3"
+	"github.com/rs/zerolog/log"
 )
 
 type Profile struct {
@@ -23,15 +22,20 @@ type InboundMessage struct {
 }
 
 func inboundMessage(c fiber.Ctx) error {
-	log.Println("Received inbound message request")
+	log.Info().Msg("Received inbound message request")
 
 	var message InboundMessage
 	if err := c.Bind().JSON(&message); err != nil {
-		log.Printf("Error parsing JSON: %v\n", err)
+		log.Error().Err(err).Msg("Error parsing JSON")
 		return c.Status(fiber.StatusBadRequest).SendString("Error parsing JSON")
 	}
 
-	log.Printf("Parsed inbound message: %+v\n", message)
+	log.Debug().
+		Str("message_uuid", message.MessageUUID).
+		Str("from", message.From).
+		Str("text", message.Text).
+		Msg("Parsed inbound message")
+
 	processMessage(message)
 
 	return c.SendStatus(fiber.StatusOK)

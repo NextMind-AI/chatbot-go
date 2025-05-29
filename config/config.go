@@ -1,11 +1,11 @@
 package config
 
 import (
-	"log"
 	"os"
 	"strconv"
 
 	"github.com/joho/godotenv"
+	"github.com/rs/zerolog/log"
 )
 
 type Config struct {
@@ -34,11 +34,11 @@ func Load() *Config {
 	}
 
 	if cfg.VonageJWT == "" {
-		log.Fatal("VONAGE_JWT environment variable is required")
+		log.Fatal().Msg("VONAGE_JWT environment variable is required")
 	}
 
 	if cfg.OpenAIKey == "" {
-		log.Fatal("OPENAI_API_KEY environment variable is required")
+		log.Fatal().Msg("OPENAI_API_KEY environment variable is required")
 	}
 
 	return cfg

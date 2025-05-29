@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
+
+	"github.com/rs/zerolog/log"
 )
 
 type Config struct {
@@ -37,7 +38,12 @@ func NewClient(config Config) Client {
 }
 
 func (c *Client) SendWhatsAppTextMessage(toNumber, senderID, text string) error {
-	log.Printf("Preparing to send WhatsApp message to %s from %s: %s\n", toNumber, senderID, text)
+	log.Debug().
+		Str("to", toNumber).
+		Str("from", senderID).
+		Str("text", text).
+		Msg("Preparing to send WhatsApp message")
+
 	message := WhatsAppMessage{
 		To:          toNumber,
 		From:        senderID,
@@ -49,7 +55,8 @@ func (c *Client) SendWhatsAppTextMessage(toNumber, senderID, text string) error 
 }
 
 func (c *Client) MarkMessageAsRead(messageID string) error {
-	log.Printf("Marking message %s as read\n", messageID)
+	log.Debug().Str("message_id", messageID).Msg("Marking message as read")
+
 	payload := MarkAsReadPayload{
 		Status: "read",
 	}
@@ -58,16 +65,21 @@ func (c *Client) MarkMessageAsRead(messageID string) error {
 }
 
 func (c *Client) sendRequest(method, url string, body any) error {
-	log.Printf("Sending %s request to %s with body: %+v\n", method, url, body)
+	log.Debug().
+		Str("method", method).
+		Str("url", url).
+		Interface("body", body).
+		Msg("Sending HTTP request")
+
 	payload, err := json.Marshal(body)
 	if err != nil {
-		log.Printf("Error marshaling payload: %v\n", err)
+		log.Error().Err(err).Str("method", method).Str("url", url).Msg("Error marshaling payload")
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(payload))
 	if err != nil {
-		log.Printf("Error creating HTTP request: %v\n", err)
+		log.Error().Err(err).Str("method", method).Str("url", url).Msg("Error creating HTTP request")
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.config.VonageJWT)
@@ -77,14 +89,23 @@ func (c *Client) sendRequest(method, url string, body any) error {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Error sending HTTP request: %v\n", err)
+		log.Error().Err(err).Str("method", method).Str("url", url).Msg("Error sending HTTP request")
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	log.Printf("Received response with status code: %d\n", resp.StatusCode)
+	log.Debug().
+		Str("method", method).
+		Str("url", url).
+		Int("status_code", resp.StatusCode).
+		Msg("Received HTTP response")
+
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
-		log.Printf("Unexpected status code: %d\n", resp.StatusCode)
+		log.Warn().
+			Str("method", method).
+			Str("url", url).
+			Int("status_code", resp.StatusCode).
+			Msg("Unexpected HTTP status code")
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 

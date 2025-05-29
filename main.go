@@ -4,11 +4,11 @@ import (
 	"chatbot/config"
 	"chatbot/redis"
 	"chatbot/vonage"
-	"log"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/rs/zerolog/log"
 )
 
 var VonageClient vonage.Client
@@ -41,6 +41,12 @@ func main() {
 		return c.SendStatus(fiber.StatusOK)
 	})
 
-	log.Printf("Server starting on :%s\n", appConfig.Port)
-	log.Fatal(app.Listen(":" + appConfig.Port))
+	log.Info().Str("port", appConfig.Port).Msg("Starting chatbot server")
+
+	err := app.Listen(":"+appConfig.Port, fiber.ListenConfig{
+		DisableStartupMessage: true,
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to start server")
+	}
 }

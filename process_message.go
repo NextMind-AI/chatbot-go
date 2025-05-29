@@ -3,25 +3,31 @@ package main
 import (
 	"chatbot/redis"
 	"context"
-	"log"
 
 	"github.com/openai/openai-go"
+	"github.com/rs/zerolog/log"
 )
 
 func processMessage(message InboundMessage) {
-	log.Printf("Processing message with UUID: %s\n", message.MessageUUID)
+	log.Info().Str("message_uuid", message.MessageUUID).Msg("Processing message")
 
 	VonageClient.MarkMessageAsRead(message.MessageUUID)
 
 	userID := message.From
 
 	if err := RedisClient.AddUserMessage(userID, message.Text); err != nil {
-		log.Printf("Error storing user message in Redis: %v", err)
+		log.Error().
+			Err(err).
+			Str("user_id", userID).
+			Msg("Error storing user message in Redis")
 	}
 
 	chatHistory, err := RedisClient.GetChatHistory(userID)
 	if err != nil {
-		log.Printf("Error retrieving chat history from Redis: %v", err)
+		log.Error().
+			Err(err).
+			Str("user_id", userID).
+			Msg("Error retrieving chat history from Redis")
 		chatHistory = []redis.ChatMessage{}
 	}
 
@@ -35,7 +41,10 @@ func processMessage(message InboundMessage) {
 		}
 	}
 
-	log.Printf("Using OpenAI client with %d historical messages", len(messages))
+	log.Debug().
+		Int("message_count", len(messages)).
+		Str("user_id", userID).
+		Msg("Using OpenAI client with historical messages")
 
 	chatCompletion, err := OpenAIClient.Chat.Completions.New(
 		context.TODO(),
@@ -46,17 +55,26 @@ func processMessage(message InboundMessage) {
 	)
 
 	if err != nil {
-		log.Printf("Error creating chat completion: %v\n", err)
+		log.Error().
+			Err(err).
+			Str("user_id", userID).
+			Msg("Error creating chat completion")
 		return
 	}
 
 	botResponse := chatCompletion.Choices[0].Message.Content
-	log.Printf("Received chat completion: %s\n", botResponse)
+	log.Debug().
+		Str("user_id", userID).
+		Str("response", botResponse).
+		Msg("Received chat completion")
 
 	if err := RedisClient.AddBotMessage(userID, botResponse); err != nil {
-		log.Printf("Error storing bot message in Redis: %v", err)
+		log.Error().
+			Err(err).
+			Str("user_id", userID).
+			Msg("Error storing bot message in Redis")
 	}
 
 	VonageClient.SendWhatsAppTextMessage(message.From, "5563936180023", botResponse)
-	log.Println("Sent WhatsApp message")
+	log.Info().Str("user_id", userID).Msg("Sent WhatsApp message")
 }

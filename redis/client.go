@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
 )
 
 type Client struct {
@@ -34,9 +34,15 @@ func NewClient(addr, password string, db int) Client {
 	}
 
 	if err := client.Ping(); err != nil {
-		log.Fatalf("Redis connection failed: %v", err)
+		log.Fatal().Err(err).
+			Str("addr", addr).
+			Int("db", db).
+			Msg("Redis connection failed")
 	} else {
-		log.Println("Redis connected successfully")
+		log.Info().
+			Str("addr", addr).
+			Int("db", db).
+			Msg("Redis connected successfully")
 	}
 
 	return client
