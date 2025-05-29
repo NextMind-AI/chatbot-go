@@ -20,10 +20,7 @@ type Config struct {
 }
 
 func Load() *Config {
-	err := godotenv.Load()
-	if err != nil {
-		log.Println("No .env file found, using system environment variables")
-	}
+	godotenv.Load()
 
 	cfg := &Config{
 		VonageJWT:                 getEnv("VONAGE_JWT", ""),
