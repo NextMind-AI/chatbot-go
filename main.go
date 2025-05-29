@@ -18,11 +18,11 @@ var RedisClient redis.Client
 func main() {
 	var appConfig = config.Load()
 
-	VonageClient = vonage.NewClient(vonage.Config{
-		VonageJWT:                 appConfig.VonageJWT,
-		GeospecificMessagesAPIURL: appConfig.GeospecificMessagesAPIURL,
-		MessagesAPIURL:            appConfig.MessagesAPIURL,
-	})
+	VonageClient = vonage.NewClient(
+		appConfig.VonageJWT,
+		appConfig.GeospecificMessagesAPIURL,
+		appConfig.MessagesAPIURL,
+	)
 
 	OpenAIClient = openai.NewClient(
 		option.WithAPIKey(appConfig.OpenAIKey),

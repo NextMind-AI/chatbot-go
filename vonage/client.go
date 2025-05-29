@@ -31,10 +31,23 @@ type MarkAsReadPayload struct {
 	Status string `json:"status"`
 }
 
-func NewClient(config Config) Client {
-	return Client{
+func NewClient(vonageJWT, geospecificMessagesAPIURL, messagesAPIURL string) Client {
+	config := Config{
+		VonageJWT:                 vonageJWT,
+		GeospecificMessagesAPIURL: geospecificMessagesAPIURL,
+		MessagesAPIURL:            messagesAPIURL,
+	}
+
+	client := Client{
 		config: config,
 	}
+
+	log.Info().
+		Str("messages_api_url", messagesAPIURL).
+		Str("geospecific_messages_api_url", geospecificMessagesAPIURL).
+		Msg("Vonage client initialized successfully")
+
+	return client
 }
 
 func (c *Client) SendWhatsAppTextMessage(toNumber, senderID, text string) error {
