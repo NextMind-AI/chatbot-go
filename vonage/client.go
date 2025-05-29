@@ -14,7 +14,7 @@ type Config struct {
 }
 
 type Client struct {
-	config *Config
+	config Config
 }
 
 type WhatsAppMessage struct {
@@ -29,7 +29,7 @@ type MarkAsReadPayload struct {
 	Status string `json:"status"`
 }
 
-func NewClient(config *Config) Client {
+func NewClient(config Config) Client {
 	return Client{
 		config: config,
 	}

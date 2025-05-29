@@ -33,12 +33,11 @@ var OpenAIClient openai.Client
 func main() {
 	var appConfig = config.Load()
 
-	vonageConfig := &vonage.Config{
+	VonageClient = vonage.NewClient(vonage.Config{
 		VonageJWT:                 appConfig.VonageJWT,
 		GeospecificMessagesAPIURL: appConfig.GeospecificMessagesAPIURL,
 		MessagesAPIURL:            appConfig.MessagesAPIURL,
-	}
-	VonageClient = vonage.NewClient(vonageConfig)
+	})
 
 	OpenAIClient = openai.NewClient(
 		option.WithAPIKey(appConfig.OpenAIKey),
