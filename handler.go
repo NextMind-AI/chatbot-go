@@ -8,7 +8,6 @@ import (
 	"net/http"
 
 	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
 )
 
 func inboundMessage(w http.ResponseWriter, r *http.Request) {
@@ -35,14 +34,12 @@ func inboundMessage(w http.ResponseWriter, r *http.Request) {
 
 func processMessage(message InboundMessage) {
 	fmt.Printf("Processing message with UUID: %s\n", message.MessageUUID)
-	MarkMessageAsRead(message.MessageUUID)
 
-	client := openai.NewClient(
-		option.WithAPIKey(AppConfig.OpenAIKey),
-	)
-	fmt.Println("Created OpenAI client")
+	VonageClient.MarkMessageAsRead(message.MessageUUID)
 
-	chatCompletion, err := client.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
+	fmt.Println("Using OpenAI client")
+
+	chatCompletion, err := OpenAIClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(message.Text),
 		},
@@ -55,6 +52,6 @@ func processMessage(message InboundMessage) {
 	}
 
 	fmt.Printf("Received chat completion: %s\n", chatCompletion.Choices[0].Message.Content)
-	SendWhatsAppTextMessage(message.From, "5563936180023", chatCompletion.Choices[0].Message.Content)
+	VonageClient.SendWhatsAppTextMessage(message.From, "5563936180023", chatCompletion.Choices[0].Message.Content)
 	fmt.Println("Sent WhatsApp message")
 }

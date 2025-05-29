@@ -1,9 +1,13 @@
 package main
 
 import (
+	"chatbot/vonage"
 	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
 )
 
 type Profile struct {
@@ -22,8 +26,22 @@ type InboundMessage struct {
 	To            string  `json:"to"`
 }
 
+var VonageClient vonage.Client
+var OpenAIClient openai.Client
+
 func main() {
 	LoadConfig()
+
+	vonageConfig := &vonage.Config{
+		VonageJWT:                 AppConfig.VonageJWT,
+		GeospecificMessagesAPIURL: AppConfig.GeospecificMessagesAPIURL,
+		MessagesAPIURL:            AppConfig.MessagesAPIURL,
+	}
+	VonageClient = vonage.NewClient(vonageConfig)
+
+	OpenAIClient = openai.NewClient(
+		option.WithAPIKey(AppConfig.OpenAIKey),
+	)
 
 	http.HandleFunc("POST /webhooks/inbound-message", inboundMessage)
 	http.HandleFunc("POST /webhooks/status", func(w http.ResponseWriter, r *http.Request) {
