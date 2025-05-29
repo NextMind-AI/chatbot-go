@@ -16,9 +16,10 @@ type Client struct {
 }
 
 type ChatMessage struct {
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
+	Role        string    `json:"role"`
+	Content     string    `json:"content"`
+	Timestamp   time.Time `json:"timestamp"`
+	MessageUUID string    `json:"message_uuid,omitempty"`
 }
 
 func NewClient(addr, password string, db int) Client {
@@ -52,11 +53,12 @@ func (c *Client) Ping() error {
 	return c.rdb.Ping(c.ctx).Err()
 }
 
-func (c *Client) AddUserMessage(userID, message string) error {
+func (c *Client) AddUserMessage(userID, message, messageUUID string) error {
 	chatMsg := ChatMessage{
-		Role:      "user",
-		Content:   message,
-		Timestamp: time.Now(),
+		Role:        "user",
+		Content:     message,
+		Timestamp:   time.Now(),
+		MessageUUID: messageUUID,
 	}
 
 	return c.addMessage(userID, chatMsg)

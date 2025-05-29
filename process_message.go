@@ -54,7 +54,11 @@ func processMessage(message InboundMessage) {
 			Msg("Error marking message as read")
 	}
 
-	if err := RedisClient.AddUserMessage(userID, message.Text); err != nil {
+	if err := RedisClient.AddUserMessage(
+		userID,
+		message.Text,
+		message.MessageUUID,
+	); err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", userID).
@@ -63,7 +67,9 @@ func processMessage(message InboundMessage) {
 
 	select {
 	case <-ctx.Done():
-		log.Info().Str("user_id", userID).Msg("Message processing cancelled after storing user message")
+		log.Info().
+			Str("user_id", userID).
+			Msg("Message processing cancelled after storing user message")
 		return
 	default:
 	}
