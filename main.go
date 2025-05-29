@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 )
@@ -24,30 +22,14 @@ type InboundMessage struct {
 	To            string  `json:"to"`
 }
 
-func inboundMessage(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Error reading request body", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	var message InboundMessage
-	if err := json.Unmarshal(body, &message); err != nil {
-		http.Error(w, "Error parsing JSON", http.StatusBadRequest)
-		return
-	}
-
-	fmt.Printf("Received message: %+v\n", message)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "received"})
-}
-
 func main() {
-	http.HandleFunc("POST /webhooks/inbound-message", inboundMessage)
+	LoadConfig()
 
-	fmt.Println("Server starting on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	http.HandleFunc("POST /webhooks/inbound-message", inboundMessage)
+	http.HandleFunc("POST /webhooks/status", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	fmt.Printf("Server starting on :%s\n", AppConfig.Port)
+	log.Fatal(http.ListenAndServe(":"+AppConfig.Port, nil))
 }

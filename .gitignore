@@ -1,0 +1,14 @@
+# IDE/editor files
+.idea/
+.vscode/
+.cursor/
+*.swp
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+.env
+
+# Project binary
+/chatbot
