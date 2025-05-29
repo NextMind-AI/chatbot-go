@@ -1,6 +1,7 @@
 package main
 
 import (
+	"chatbot/config"
 	"chatbot/vonage"
 	"fmt"
 	"log"
@@ -30,17 +31,17 @@ var VonageClient vonage.Client
 var OpenAIClient openai.Client
 
 func main() {
-	LoadConfig()
+	var appConfig = config.Load()
 
 	vonageConfig := &vonage.Config{
-		VonageJWT:                 AppConfig.VonageJWT,
-		GeospecificMessagesAPIURL: AppConfig.GeospecificMessagesAPIURL,
-		MessagesAPIURL:            AppConfig.MessagesAPIURL,
+		VonageJWT:                 appConfig.VonageJWT,
+		GeospecificMessagesAPIURL: appConfig.GeospecificMessagesAPIURL,
+		MessagesAPIURL:            appConfig.MessagesAPIURL,
 	}
 	VonageClient = vonage.NewClient(vonageConfig)
 
 	OpenAIClient = openai.NewClient(
-		option.WithAPIKey(AppConfig.OpenAIKey),
+		option.WithAPIKey(appConfig.OpenAIKey),
 	)
 
 	http.HandleFunc("POST /webhooks/inbound-message", inboundMessage)
@@ -48,6 +49,6 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	fmt.Printf("Server starting on :%s\n", AppConfig.Port)
-	log.Fatal(http.ListenAndServe(":"+AppConfig.Port, nil))
+	fmt.Printf("Server starting on :%s\n", appConfig.Port)
+	log.Fatal(http.ListenAndServe(":"+appConfig.Port, nil))
 }

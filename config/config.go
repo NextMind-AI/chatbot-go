@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"log"
@@ -15,15 +15,13 @@ type Config struct {
 	MessagesAPIURL            string
 }
 
-var AppConfig *Config
-
-func LoadConfig() {
+func Load() *Config {
 	err := godotenv.Load()
 	if err != nil {
 		log.Println("No .env file found, using system environment variables")
 	}
 
-	AppConfig = &Config{
+	cfg := &Config{
 		VonageJWT:                 getEnv("VONAGE_JWT", ""),
 		OpenAIKey:                 getEnv("OPENAI_API_KEY", ""),
 		Port:                      getEnv("PORT", "8080"),
@@ -31,13 +29,15 @@ func LoadConfig() {
 		MessagesAPIURL:            getEnv("MESSAGES_API_URL", "https://api.nexmo.com/v1/messages"),
 	}
 
-	if AppConfig.VonageJWT == "" {
+	if cfg.VonageJWT == "" {
 		log.Fatal("VONAGE_JWT environment variable is required")
 	}
 
-	if AppConfig.OpenAIKey == "" {
+	if cfg.OpenAIKey == "" {
 		log.Fatal("OPENAI_API_KEY environment variable is required")
 	}
+
+	return cfg
 }
 
 func getEnv(key, defaultValue string) string {
