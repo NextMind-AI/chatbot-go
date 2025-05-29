@@ -99,9 +99,9 @@ func (c *Client) GetChatHistory(userID string) ([]ChatMessage, error) {
 	}
 
 	var chatHistory []ChatMessage
-	for i := 0; i < len(messages); i++ {
+	for _, message := range messages {
 		var msg ChatMessage
-		err := json.Unmarshal([]byte(messages[i]), &msg)
+		err := json.Unmarshal([]byte(message), &msg)
 		if err != nil {
 			continue
 		}
