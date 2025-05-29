@@ -3,18 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/openai/openai-go"
 )
 
 func inboundMessage(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Received inbound message request")
+	log.Println("Received inbound message request")
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		fmt.Printf("Error reading request body: %v\n", err)
+		log.Printf("Error reading request body: %v\n", err)
 		http.Error(w, "Error reading request body", http.StatusBadRequest)
 		return
 	}
@@ -22,22 +22,22 @@ func inboundMessage(w http.ResponseWriter, r *http.Request) {
 
 	var message InboundMessage
 	if err := json.Unmarshal(body, &message); err != nil {
-		fmt.Printf("Error parsing JSON: %v\n", err)
+		log.Printf("Error parsing JSON: %v\n", err)
 		http.Error(w, "Error parsing JSON", http.StatusBadRequest)
 		return
 	}
 
-	fmt.Printf("Parsed inbound message: %+v\n", message)
+	log.Printf("Parsed inbound message: %+v\n", message)
 	processMessage(message)
 	w.WriteHeader(http.StatusOK)
 }
 
 func processMessage(message InboundMessage) {
-	fmt.Printf("Processing message with UUID: %s\n", message.MessageUUID)
+	log.Printf("Processing message with UUID: %s\n", message.MessageUUID)
 
 	VonageClient.MarkMessageAsRead(message.MessageUUID)
 
-	fmt.Println("Using OpenAI client")
+	log.Println("Using OpenAI client")
 
 	chatCompletion, err := OpenAIClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
@@ -47,11 +47,11 @@ func processMessage(message InboundMessage) {
 	})
 
 	if err != nil {
-		fmt.Printf("Error creating chat completion: %v\n", err)
+		log.Printf("Error creating chat completion: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Received chat completion: %s\n", chatCompletion.Choices[0].Message.Content)
+	log.Printf("Received chat completion: %s\n", chatCompletion.Choices[0].Message.Content)
 	VonageClient.SendWhatsAppTextMessage(message.From, "5563936180023", chatCompletion.Choices[0].Message.Content)
-	fmt.Println("Sent WhatsApp message")
+	log.Println("Sent WhatsApp message")
 }

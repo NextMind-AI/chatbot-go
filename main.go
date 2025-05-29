@@ -3,7 +3,6 @@ package main
 import (
 	"chatbot/config"
 	"chatbot/vonage"
-	"fmt"
 	"log"
 	"net/http"
 
@@ -48,6 +47,6 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	fmt.Printf("Server starting on :%s\n", appConfig.Port)
+	log.Printf("Server starting on :%s\n", appConfig.Port)
 	log.Fatal(http.ListenAndServe(":"+appConfig.Port, nil))
 }
