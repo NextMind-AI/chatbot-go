@@ -2,13 +2,12 @@ package main
 
 import (
 	"chatbot/config"
+	"chatbot/openai"
 	"chatbot/redis"
 	"chatbot/vonage"
 	"net/http"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
 	"github.com/rs/zerolog/log"
 )
 
@@ -29,8 +28,8 @@ func main() {
 	)
 
 	OpenAIClient = openai.NewClient(
-		option.WithAPIKey(appConfig.OpenAIKey),
-		option.WithHTTPClient(&httpClient),
+		appConfig.OpenAIKey,
+		&httpClient,
 	)
 
 	RedisClient = redis.NewClient(
