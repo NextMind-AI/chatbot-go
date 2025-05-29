@@ -74,7 +74,7 @@ func (c *Client) addMessage(userID string, message ChatMessage) error {
 		return err
 	}
 
-	_, err = c.rdb.LPush(c.ctx, key, messageJSON).Result()
+	_, err = c.rdb.RPush(c.ctx, key, messageJSON).Result()
 	if err != nil {
 		return err
 	}
@@ -93,7 +93,7 @@ func (c *Client) GetChatHistory(userID string) ([]ChatMessage, error) {
 	}
 
 	var chatHistory []ChatMessage
-	for i := len(messages) - 1; i >= 0; i-- {
+	for i := 0; i < len(messages); i++ {
 		var msg ChatMessage
 		err := json.Unmarshal([]byte(messages[i]), &msg)
 		if err != nil {
