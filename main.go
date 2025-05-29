@@ -2,6 +2,7 @@ package main
 
 import (
 	"chatbot/config"
+	"chatbot/redis"
 	"chatbot/vonage"
 	"log"
 
@@ -12,6 +13,7 @@ import (
 
 var VonageClient vonage.Client
 var OpenAIClient openai.Client
+var RedisClient redis.Client
 
 func main() {
 	var appConfig = config.Load()
@@ -24,6 +26,12 @@ func main() {
 
 	OpenAIClient = openai.NewClient(
 		option.WithAPIKey(appConfig.OpenAIKey),
+	)
+
+	RedisClient = redis.NewClient(
+		appConfig.RedisAddr,
+		appConfig.RedisPassword,
+		appConfig.RedisDB,
 	)
 
 	app := fiber.New()
