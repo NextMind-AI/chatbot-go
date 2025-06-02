@@ -69,7 +69,7 @@ func processMessage(message InboundMessage) {
 			Msg("Error storing bot message in Redis")
 	}
 
-	_, err = VonageClient.SendWhatsAppTextMessage(message.From, "5563936180023", botResponse)
+	_, err = VonageClient.SendWhatsAppTextMessage(message.From, "5585936181311", botResponse)
 	if err != nil {
 		log.Error().
 			Err(err).
