@@ -4,14 +4,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 )
 
 const (
 	BaseURL          = "https://api.elevenlabs.io"
 	SpeechToTextPath = "/v1/speech-to-text"
 	DefaultModel     = "scribe_v1"
-	DefaultTimeout   = 30 * time.Second
 )
 
 // Client represents the ElevenLabs API client
@@ -22,17 +20,11 @@ type Client struct {
 }
 
 // NewClient creates a new ElevenLabs client
-func NewClient(apiKey string, httpClient *http.Client) Client {
-	if httpClient == nil {
-		httpClient = &http.Client{
-			Timeout: DefaultTimeout,
-		}
-	}
-
+func NewClient(apiKey string, httpClient http.Client) Client {
 	return Client{
 		APIKey:     apiKey,
 		BaseURL:    BaseURL,
-		HTTPClient: httpClient,
+		HTTPClient: &httpClient,
 	}
 }
 

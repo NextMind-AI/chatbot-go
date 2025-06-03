@@ -44,7 +44,7 @@ func Load() *Config {
 	}
 
 	if cfg.ElevenLabsAPIKey == "" {
-		log.Warn().Msg("ELEVENLABS_API_KEY environment variable is not set - speech-to-text functionality will be disabled")
+		log.Fatal().Msg("ELEVENLABS_API_KEY environment variable is required")
 	}
 
 	return cfg

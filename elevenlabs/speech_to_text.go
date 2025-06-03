@@ -15,21 +15,17 @@ import (
 
 // SpeechToText converts audio to text using ElevenLabs API
 func (c *Client) SpeechToText(req SpeechToTextRequest) (*SpeechToTextResponse, error) {
-	// Validate required fields
 	if req.ModelID == "" {
 		req.ModelID = DefaultModel
 	}
 
-	// Create multipart form
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
-	// Add model_id field
 	if err := writer.WriteField("model_id", req.ModelID); err != nil {
 		return nil, fmt.Errorf("failed to write model_id field: %w", err)
 	}
 
-	// Add optional fields
 	if req.LanguageCode != "" {
 		if err := writer.WriteField("language_code", req.LanguageCode); err != nil {
 			return nil, fmt.Errorf("failed to write language_code field: %w", err)
@@ -84,7 +80,6 @@ func (c *Client) SpeechToText(req SpeechToTextRequest) (*SpeechToTextResponse, e
 		}
 	}
 
-	// Add additional formats if provided
 	if len(req.AdditionalFormats) > 0 {
 		for i, format := range req.AdditionalFormats {
 			fieldName := fmt.Sprintf("additional_formats[%d][format]", i)
@@ -94,7 +89,6 @@ func (c *Client) SpeechToText(req SpeechToTextRequest) (*SpeechToTextResponse, e
 		}
 	}
 
-	// Add file if provided (either file or cloud_storage_url must be provided)
 	if req.File != nil {
 		fileName := req.FileName
 		if fileName == "" {
@@ -113,19 +107,16 @@ func (c *Client) SpeechToText(req SpeechToTextRequest) (*SpeechToTextResponse, e
 		return nil, fmt.Errorf("either file or cloud_storage_url must be provided")
 	}
 
-	// Close the writer to finalize the multipart form
 	if err := writer.Close(); err != nil {
 		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
 	}
 
-	// Create HTTP request
 	url := c.BaseURL + SpeechToTextPath
 	httpReq, err := http.NewRequest("POST", url, &body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
-	// Set headers
 	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
 	if c.APIKey != "" {
 		httpReq.Header.Set("xi-api-key", c.APIKey)
@@ -136,14 +127,12 @@ func (c *Client) SpeechToText(req SpeechToTextRequest) (*SpeechToTextResponse, e
 		Str("content_type", writer.FormDataContentType()).
 		Msg("Making speech-to-text request to ElevenLabs")
 
-	// Make the request
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Read response body
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
@@ -154,21 +143,17 @@ func (c *Client) SpeechToText(req SpeechToTextRequest) (*SpeechToTextResponse, e
 		Str("response_body", string(respBody)).
 		Msg("Received response from ElevenLabs")
 
-	// Check for API errors
 	if resp.StatusCode != http.StatusOK {
 		var apiErr APIError
 		apiErr.StatusCode = resp.StatusCode
 
-		// Try to parse error response
 		if err := json.Unmarshal(respBody, &apiErr); err != nil {
-			// If we can't parse the error, use the raw response
 			apiErr.Message = string(respBody)
 		}
 
 		return nil, apiErr
 	}
 
-	// Parse successful response
 	var result SpeechToTextResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse response JSON: %w", err)

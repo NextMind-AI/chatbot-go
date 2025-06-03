@@ -49,7 +49,7 @@ import (
 
 func main() {
     // Initialize the client
-    client := elevenlabs.NewClient("your-api-key", &http.Client{})
+    client := elevenlabs.NewClient("your-api-key", http.Client{})
     
     // Transcribe from a file
     audioFile := strings.NewReader("audio data here")
@@ -74,7 +74,7 @@ import (
 
 func main() {
     // Initialize client and handler
-    client := elevenlabs.NewClient("your-api-key", &http.Client{})
+    client := elevenlabs.NewClient("your-api-key", http.Client{})
     handler := elevenlabs.NewAudioHandler(&client, &http.Client{})
     
     // Process audio message
@@ -121,7 +121,7 @@ WhatsApp audio messages have this structure:
 
 ### Client
 
-#### `NewClient(apiKey string, httpClient *http.Client) Client`
+#### `NewClient(apiKey string, httpClient http.Client) Client`
 
 Creates a new ElevenLabs client.
 
@@ -236,7 +236,6 @@ The package uses structured logging with zerolog. Log levels:
 ### Default Settings
 
 - **Model**: `scribe_v1`
-- **Timeout**: 30 seconds
 - **Tag Audio Events**: `true`
 - **Timestamps Granularity**: `word`
 

@@ -41,17 +41,11 @@ func main() {
 		appConfig.RedisDB,
 	)
 
-	// Initialize ElevenLabs client if API key is provided
-	if appConfig.ElevenLabsAPIKey != "" {
-		ElevenLabsClient = elevenlabs.NewClient(
-			appConfig.ElevenLabsAPIKey,
-			&httpClient,
-		)
-		AudioHandler = elevenlabs.NewAudioHandler(&ElevenLabsClient, &httpClient)
-		log.Info().Msg("ElevenLabs speech-to-text client initialized")
-	} else {
-		log.Warn().Msg("ElevenLabs API key not provided - audio transcription will be disabled")
-	}
+	ElevenLabsClient = elevenlabs.NewClient(
+		appConfig.ElevenLabsAPIKey,
+		httpClient,
+	)
+	AudioHandler = elevenlabs.NewAudioHandler(&ElevenLabsClient, &httpClient)
 
 	app := fiber.New()
 

@@ -45,19 +45,16 @@ func (h *AudioHandler) ProcessAudioMessage(audioMsg AudioMessage) (*SpeechToText
 		Str("language", audioMsg.Language).
 		Msg("Processing audio message")
 
-	// Download the audio file
 	audioData, err := h.downloadAudioFile(audioMsg.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download audio file: %w", err)
 	}
 
-	// Determine file name if not provided
 	fileName := audioMsg.FileName
 	if fileName == "" {
 		fileName = h.generateFileName(audioMsg.URL, audioMsg.ContentType)
 	}
 
-	// Transcribe the audio
 	reader := bytes.NewReader(audioData)
 	response, err := h.Client.TranscribeAudioFile(reader, fileName, audioMsg.Language)
 	if err != nil {
@@ -123,9 +120,7 @@ func (h *AudioHandler) downloadAudioFile(url string) ([]byte, error) {
 
 // generateFileName generates a filename based on URL and content type
 func (h *AudioHandler) generateFileName(url string, contentType string) string {
-	// Try to extract filename from URL
 	if filename := filepath.Base(url); filename != "." && filename != "/" {
-		// Remove query parameters
 		if idx := strings.Index(filename, "?"); idx != -1 {
 			filename = filename[:idx]
 		}
@@ -134,7 +129,6 @@ func (h *AudioHandler) generateFileName(url string, contentType string) string {
 		}
 	}
 
-	// Generate filename based on content type
 	extension := h.getFileExtensionFromContentType(contentType)
 	return fmt.Sprintf("audio_message%s", extension)
 }
