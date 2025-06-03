@@ -49,12 +49,20 @@ func processMessage(message InboundMessage) {
 		return
 	}
 
-	botResponse, err := OpenAIClient.ProcessChatWithTools(ctx, userID, chatHistory)
+	err = OpenAIClient.ProcessChatStreamingWithTools(
+		ctx,
+		userID,
+		chatHistory,
+		&VonageClient,
+		&RedisClient,
+		message.From,
+		"5585936181311",
+	)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", userID).
-			Msg("Error processing chat with OpenAI")
+			Msg("Error processing streaming chat with OpenAI")
 		return
 	}
 
@@ -62,24 +70,7 @@ func processMessage(message InboundMessage) {
 		return
 	}
 
-	if err := RedisClient.AddBotMessage(userID, botResponse); err != nil {
-		log.Error().
-			Err(err).
-			Str("user_id", userID).
-			Msg("Error storing bot message in Redis")
-	}
-
-	_, err = VonageClient.SendWhatsAppTextMessage(message.From, "5585936181311", botResponse)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("user_id", userID).
-			Str("to", message.From).
-			Msg("Error sending WhatsApp message")
-		return
-	}
-
-	log.Info().Str("user_id", userID).Msg("Sent WhatsApp message")
+	log.Info().Str("user_id", userID).Msg("Completed streaming chat processing")
 }
 
 func cancelled(ctx context.Context, userID, stage string) bool {
