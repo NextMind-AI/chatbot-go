@@ -27,7 +27,10 @@ func processMessage(message InboundMessage) {
 	}
 
 	var messageText string
-	if message.Audio != nil && message.Audio.URL != "" {
+	switch message.MessageType {
+	case "text":
+		messageText = message.Text
+	case "audio":
 		transcribedText, err := ElevenLabsClient.TranscribeAudio(message.Audio.URL)
 		if err != nil {
 			log.Error().
@@ -37,13 +40,28 @@ func processMessage(message InboundMessage) {
 			return
 		}
 		messageText = transcribedText
-	} else {
-		messageText = message.Text
+	default:
+		log.Warn().
+			Str("message_type", message.MessageType).
+			Str("message_uuid", message.MessageUUID).
+			Msg("Unsupported message type")
+
+		if _, err := VonageClient.SendWhatsAppTextMessage(
+			message.From,
+			"5585936181311",
+			"I can't process this message type for now",
+		); err != nil {
+			log.Error().
+				Err(err).
+				Str("user_id", message.From).
+				Msg("Error sending unsupported message type response")
+		}
+		return
 	}
 
 	finalMessageText := strings.TrimSpace(messageText)
 	if finalMessageText == "" {
-		log.Warn().
+		log.Error().
 			Str("message_uuid", message.MessageUUID).
 			Msg("No text content found in message")
 		return
