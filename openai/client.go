@@ -15,10 +15,10 @@ type Client struct {
 
 // NewClient creates a new OpenAI client wrapper with the specified API key and HTTP client.
 // The HTTP client allows for custom configuration such as timeouts and proxy settings.
-func NewClient(apiKey string, httpClient *http.Client) Client {
+func NewClient(apiKey string, httpClient http.Client) Client {
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
-		option.WithHTTPClient(httpClient),
+		option.WithHTTPClient(&httpClient),
 	)
 
 	openaiClient := Client{

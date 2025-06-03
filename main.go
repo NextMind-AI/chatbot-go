@@ -32,7 +32,7 @@ func main() {
 
 	OpenAIClient = openai.NewClient(
 		appConfig.OpenAIKey,
-		&httpClient,
+		httpClient,
 	)
 
 	RedisClient = redis.NewClient(
