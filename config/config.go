@@ -11,6 +11,7 @@ import (
 type Config struct {
 	VonageJWT                 string
 	OpenAIKey                 string
+	ElevenLabsAPIKey          string
 	Port                      string
 	GeospecificMessagesAPIURL string
 	MessagesAPIURL            string
@@ -25,6 +26,7 @@ func Load() *Config {
 	cfg := &Config{
 		VonageJWT:                 getEnv("VONAGE_JWT", ""),
 		OpenAIKey:                 getEnv("OPENAI_API_KEY", ""),
+		ElevenLabsAPIKey:          getEnv("ELEVENLABS_API_KEY", ""),
 		Port:                      getEnv("PORT", "8080"),
 		GeospecificMessagesAPIURL: getEnv("GEOSPECIFIC_MESSAGES_API_URL", "https://api-us.nexmo.com/v1/messages"),
 		MessagesAPIURL:            getEnv("MESSAGES_API_URL", "https://api.nexmo.com/v1/messages"),
@@ -39,6 +41,10 @@ func Load() *Config {
 
 	if cfg.OpenAIKey == "" {
 		log.Fatal().Msg("OPENAI_API_KEY environment variable is required")
+	}
+
+	if cfg.ElevenLabsAPIKey == "" {
+		log.Warn().Msg("ELEVENLABS_API_KEY environment variable is not set - speech-to-text functionality will be disabled")
 	}
 
 	return cfg

@@ -4,6 +4,7 @@ import (
 	"chatbot/execution"
 	"chatbot/redis"
 	"context"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 )
@@ -25,9 +26,41 @@ func processMessage(message InboundMessage) {
 			Msg("Error marking message as read")
 	}
 
+	// Process audio transcription if present
+	messageText := message.Text
+	transcribedText, err := processAudioMessage(message)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("message_uuid", message.MessageUUID).
+			Msg("Error transcribing audio message")
+		// Continue processing even if transcription fails
+	} else if transcribedText != "" {
+		log.Info().
+			Str("message_uuid", message.MessageUUID).
+			Str("transcribed_text", transcribedText).
+			Msg("Audio message transcribed successfully")
+
+		// Combine original text with transcribed text
+		if messageText != "" {
+			messageText = messageText + "\n\n[Audio transcription]: " + transcribedText
+		} else {
+			messageText = "[Audio transcription]: " + transcribedText
+		}
+	}
+
+	// Use the combined text (original + transcribed) for processing
+	finalMessageText := strings.TrimSpace(messageText)
+	if finalMessageText == "" {
+		log.Warn().
+			Str("message_uuid", message.MessageUUID).
+			Msg("No text content found in message (including transcription)")
+		return
+	}
+
 	if err := RedisClient.AddUserMessage(
 		userID,
-		message.Text,
+		finalMessageText,
 		message.MessageUUID,
 	); err != nil {
 		log.Error().
