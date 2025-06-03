@@ -26,35 +26,26 @@ func processMessage(message InboundMessage) {
 			Msg("Error marking message as read")
 	}
 
-	// Process audio transcription if present
-	messageText := message.Text
-	transcribedText, err := processAudioMessage(message)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("message_uuid", message.MessageUUID).
-			Msg("Error transcribing audio message")
-		// Continue processing even if transcription fails
-	} else if transcribedText != "" {
-		log.Info().
-			Str("message_uuid", message.MessageUUID).
-			Str("transcribed_text", transcribedText).
-			Msg("Audio message transcribed successfully")
-
-		// Combine original text with transcribed text
-		if messageText != "" {
-			messageText = messageText + "\n\n[Audio transcription]: " + transcribedText
-		} else {
-			messageText = "[Audio transcription]: " + transcribedText
+	var messageText string
+	if message.Audio != nil && message.Audio.URL != "" {
+		transcribedText, err := ElevenLabsClient.TranscribeAudio(message.Audio.URL)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("message_uuid", message.MessageUUID).
+				Msg("Error transcribing audio message")
+			return
 		}
+		messageText = transcribedText
+	} else {
+		messageText = message.Text
 	}
 
-	// Use the combined text (original + transcribed) for processing
 	finalMessageText := strings.TrimSpace(messageText)
 	if finalMessageText == "" {
 		log.Warn().
 			Str("message_uuid", message.MessageUUID).
-			Msg("No text content found in message (including transcription)")
+			Msg("No text content found in message")
 		return
 	}
 

@@ -4,12 +4,11 @@ This package provides integration with ElevenLabs' speech-to-text API for transc
 
 ## Features
 
-- **Audio Transcription**: Convert audio messages to text using ElevenLabs' advanced speech-to-text models
-- **Multiple Audio Formats**: Support for various audio and video formats (MP3, WAV, MP4, etc.)
-- **Language Detection**: Automatic language detection or manual language specification
+- **Simple Audio Transcription**: Convert audio URLs to text with a single method call
+- **Multiple Audio Formats**: Support for various audio formats (MP3, WAV, OGG, AAC, FLAC, M4A, WebM)
+- **Language Detection**: Automatic language detection
 - **WhatsApp Integration**: Seamless integration with Vonage WhatsApp messages
 - **Error Handling**: Comprehensive error handling and logging
-- **Flexible Input**: Support for both file uploads and cloud storage URLs
 
 ## Setup
 
@@ -36,7 +35,7 @@ ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 
 ## Usage
 
-### Basic Client Usage
+### Simple Transcription
 
 ```go
 package main
@@ -44,52 +43,41 @@ package main
 import (
     "chatbot/elevenlabs"
     "net/http"
-    "strings"
 )
 
 func main() {
-    // Initialize the client
     client := elevenlabs.NewClient("your-api-key", http.Client{})
     
-    // Transcribe from a file
-    audioFile := strings.NewReader("audio data here")
-    response, err := client.TranscribeAudioFile(audioFile, "audio.mp3", "en")
+    // Transcribe audio from URL - this is all you need!
+    transcribedText, err := client.TranscribeAudio("https://example.com/audio.mp3")
     if err != nil {
         log.Fatal(err)
     }
     
-    fmt.Println("Transcribed text:", response.Text)
+    fmt.Println("Transcribed text:", transcribedText)
 }
 ```
 
-### Audio Handler Usage
+### Advanced Usage
+
+For more control over the transcription process:
 
 ```go
-package main
+// Use the full response
+response, err := client.ProcessAudioFromURL("https://example.com/audio.mp3", "en")
+if err != nil {
+    log.Fatal(err)
+}
 
-import (
-    "chatbot/elevenlabs"
-    "net/http"
-)
+fmt.Println("Text:", response.Text)
+fmt.Println("Language:", response.LanguageCode)
+fmt.Println("Confidence:", response.LanguageProbability)
 
-func main() {
-    // Initialize client and handler
-    client := elevenlabs.NewClient("your-api-key", http.Client{})
-    handler := elevenlabs.NewAudioHandler(&client, &http.Client{})
-    
-    // Process audio message
-    audioMsg := elevenlabs.AudioMessage{
-        URL:         "https://example.com/audio.mp3",
-        ContentType: "audio/mpeg",
-        Language:    "en", // Optional, auto-detect if empty
-    }
-    
-    response, err := handler.ProcessAudioMessage(audioMsg)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    fmt.Println("Transcribed text:", response.Text)
+// From file
+audioFile := strings.NewReader("audio data here")
+response, err := client.TranscribeAudioFile(audioFile, "audio.mp3", "en")
+if err != nil {
+    log.Fatal(err)
 }
 ```
 
@@ -98,9 +86,20 @@ func main() {
 The integration automatically handles WhatsApp audio messages received through Vonage. When a user sends an audio message:
 
 1. The webhook receives the message with an `audio` field containing the URL
-2. The system automatically downloads and transcribes the audio
-3. The transcribed text is combined with any existing text message
-4. The combined message is processed by the chatbot
+2. The system calls `client.TranscribeAudio(audioURL)` 
+3. The transcribed text is processed by the chatbot
+
+### Message Processing
+
+```go
+func processAudioMessage(message InboundMessage) (string, error) {
+    if message.Audio == nil || message.Audio.URL == "" {
+        return "", nil
+    }
+
+    return ElevenLabsClient.TranscribeAudio(message.Audio.URL)
+}
+```
 
 ### Message Structure
 
@@ -125,52 +124,23 @@ WhatsApp audio messages have this structure:
 
 Creates a new ElevenLabs client.
 
-#### `SpeechToText(req SpeechToTextRequest) (*SpeechToTextResponse, error)`
+#### `TranscribeAudio(url string) (string, error)`
 
-Main method for speech-to-text conversion with full control over parameters.
+**Main method for simple audio transcription.** Takes an audio URL and returns the transcribed text.
+
+#### `ProcessAudioFromURL(url string, language string) (*SpeechToTextResponse, error)`
+
+Advanced method that returns the full response with language detection and confidence scores.
 
 #### `TranscribeAudioFile(file io.Reader, fileName string, languageCode string) (*SpeechToTextResponse, error)`
 
-Convenience method for transcribing audio files.
+Transcribes audio files directly.
 
-#### `TranscribeAudioURL(cloudStorageURL string, languageCode string) (*SpeechToTextResponse, error)`
+#### `SpeechToText(req SpeechToTextRequest) (*SpeechToTextResponse, error)`
 
-Convenience method for transcribing audio from URLs.
-
-### AudioHandler
-
-#### `NewAudioHandler(client *Client, httpClient *http.Client) *AudioHandler`
-
-Creates a new audio handler.
-
-#### `ProcessAudioMessage(audioMsg AudioMessage) (*SpeechToTextResponse, error)`
-
-Downloads and transcribes an audio message.
-
-#### `ProcessAudioURL(url string, language string) (*SpeechToTextResponse, error)`
-
-Transcribes audio directly from a URL.
+Low-level method for full control over all parameters.
 
 ### Types
-
-#### `SpeechToTextRequest`
-
-```go
-type SpeechToTextRequest struct {
-    ModelID               string             // Model to use (default: "scribe_v1")
-    File                  io.Reader          // Audio file data
-    FileName              string             // File name
-    LanguageCode          string             // Language code (optional)
-    TagAudioEvents        *bool              // Tag audio events like (laughter)
-    NumSpeakers           *int               // Maximum number of speakers
-    TimestampsGranularity string             // "word" or "character"
-    Diarize               *bool              // Speaker identification
-    FileFormat            string             // "pcm_s16le_16" or "other"
-    CloudStorageURL       string             // Alternative to File
-    Webhook               *bool              // Async processing
-    EnableLogging         *bool              // Enable/disable logging
-}
-```
 
 #### `SpeechToTextResponse`
 
@@ -199,7 +169,6 @@ type Word struct {
 ## Supported Audio Formats
 
 - **Audio**: MP3, WAV, OGG, AAC, FLAC, M4A, WebM
-- **Video**: MP4, WebM, QuickTime (MOV)
 - **Raw**: PCM 16-bit 16kHz (for lower latency)
 
 ## Error Handling
@@ -207,7 +176,7 @@ type Word struct {
 The package provides comprehensive error handling:
 
 ```go
-response, err := client.TranscribeAudioFile(file, "audio.mp3", "en")
+transcribedText, err := client.TranscribeAudio("https://example.com/audio.mp3")
 if err != nil {
     if apiErr, ok := err.(elevenlabs.APIError); ok {
         fmt.Printf("API Error %d: %s\n", apiErr.StatusCode, apiErr.Message)
@@ -238,37 +207,32 @@ The package uses structured logging with zerolog. Log levels:
 - **Model**: `scribe_v1`
 - **Tag Audio Events**: `true`
 - **Timestamps Granularity**: `word`
+- **Language Detection**: Auto-detect
 
 ## Examples
 
-### Transcribe WhatsApp Audio
+### Basic Usage
 
 ```go
-// This happens automatically when audio messages are received
-// The transcribed text is added to the message processing pipeline
+// Simple transcription - recommended approach
+text, err := client.TranscribeAudio("https://example.com/audio.mp3")
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println("Transcribed:", text)
 ```
 
-### Manual Transcription
+### With Language Detection Info
 
 ```go
-// From file
-file, _ := os.Open("audio.mp3")
-response, err := client.TranscribeAudioFile(file, "audio.mp3", "en")
-
-// From URL
-response, err := client.TranscribeAudioURL("https://example.com/audio.mp3", "en")
-
-// Advanced usage
-req := elevenlabs.SpeechToTextRequest{
-    ModelID:               "scribe_v1",
-    File:                  file,
-    FileName:              "audio.mp3",
-    LanguageCode:          "en",
-    TagAudioEvents:        &[]bool{true}[0],
-    TimestampsGranularity: "word",
-    Diarize:               &[]bool{true}[0],
+response, err := client.ProcessAudioFromURL("https://example.com/audio.mp3", "")
+if err != nil {
+    log.Fatal(err)
 }
-response, err := client.SpeechToText(req)
+
+fmt.Printf("Text: %s\n", response.Text)
+fmt.Printf("Language: %s (%.2f confidence)\n", 
+    response.LanguageCode, response.LanguageProbability)
 ```
 
 ## Troubleshooting
@@ -286,8 +250,4 @@ Enable debug logging to see detailed request/response information:
 
 ```go
 log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel)
-```
-
-## License
-
-This integration is part of the chatbot project and follows the same license terms. 
+``` 

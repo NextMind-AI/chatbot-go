@@ -16,7 +16,6 @@ var VonageClient vonage.Client
 var OpenAIClient openai.Client
 var RedisClient redis.Client
 var ElevenLabsClient elevenlabs.Client
-var AudioHandler *elevenlabs.AudioHandler
 
 func main() {
 	var appConfig = config.Load()
@@ -45,7 +44,6 @@ func main() {
 		appConfig.ElevenLabsAPIKey,
 		httpClient,
 	)
-	AudioHandler = elevenlabs.NewAudioHandler(&ElevenLabsClient, &httpClient)
 
 	app := fiber.New()
 
