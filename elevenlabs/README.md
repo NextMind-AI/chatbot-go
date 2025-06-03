@@ -1,41 +1,33 @@
 # ElevenLabs Speech-to-Text Integration
 
-This package provides integration with ElevenLabs' speech-to-text API for transcribing audio messages in the chatbot.
+Simple and clean integration with ElevenLabs' speech-to-text API for transcribing audio files.
 
 ## Features
 
-- **Simple Audio Transcription**: Convert audio URLs to text with a single method call
-- **Multiple Audio Formats**: Support for various audio formats (MP3, WAV, OGG, AAC, FLAC, M4A, WebM)
-- **Language Detection**: Automatic language detection
-- **WhatsApp Integration**: Seamless integration with Vonage WhatsApp messages
-- **Error Handling**: Comprehensive error handling and logging
+- **Single Method API**: One simple method to transcribe audio files
+- **Configurable Language**: Set language code in client constructor 
+- **Multiple Audio Formats**: Support for MP3, WAV, OGG, AAC, FLAC, M4A, WebM
+- **Clean Error Handling**: Simple error responses
 
 ## Setup
 
-### 1. Environment Variables
+### Environment Variables
 
-Add your ElevenLabs API key to your environment variables:
-
-```bash
-export ELEVENLABS_API_KEY="your_elevenlabs_api_key_here"
-```
-
-Or add it to your `.env` file:
+Add your ElevenLabs API key to your `.env` file:
 
 ```env
 ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 ```
 
-### 2. Get ElevenLabs API Key
+### Get ElevenLabs API Key
 
 1. Sign up at [ElevenLabs](https://elevenlabs.io/)
 2. Navigate to your profile settings
 3. Generate an API key
-4. Copy the key to your environment variables
 
 ## Usage
 
-### Simple Transcription
+### Basic Usage
 
 ```go
 package main
@@ -43,76 +35,68 @@ package main
 import (
     "chatbot/elevenlabs"
     "net/http"
+    "os"
 )
 
 func main() {
-    client := elevenlabs.NewClient("your-api-key", http.Client{})
+    // Create client with language code (empty string for auto-detection)
+    client := elevenlabs.NewClient("your-api-key", "", http.Client{})
     
-    // Transcribe audio from URL - this is all you need!
-    transcribedText, err := client.TranscribeAudio("https://example.com/audio.mp3")
+    // Open audio file
+    file, err := os.Open("audio.mp3")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer file.Close()
+    
+    // Transcribe audio - returns just the text
+    text, err := client.TranscribeAudioFile(file, "audio.mp3")
     if err != nil {
         log.Fatal(err)
     }
     
-    fmt.Println("Transcribed text:", transcribedText)
+    fmt.Println("Transcribed:", text)
 }
 ```
 
-### Advanced Usage
-
-For more control over the transcription process:
+### With Specific Language
 
 ```go
-// Use the full response
-response, err := client.ProcessAudioFromURL("https://example.com/audio.mp3", "en")
-if err != nil {
-    log.Fatal(err)
-}
+// Create client with specific language
+client := elevenlabs.NewClient("your-api-key", "en", http.Client{})
 
-fmt.Println("Text:", response.Text)
-fmt.Println("Language:", response.LanguageCode)
-fmt.Println("Confidence:", response.LanguageProbability)
-
-// From file
-audioFile := strings.NewReader("audio data here")
-response, err := client.TranscribeAudioFile(audioFile, "audio.mp3", "en")
+text, err := client.TranscribeAudioFile(file, "audio.mp3")
 if err != nil {
     log.Fatal(err)
 }
 ```
 
-## WhatsApp Integration
-
-The integration automatically handles WhatsApp audio messages received through Vonage. When a user sends an audio message:
-
-1. The webhook receives the message with an `audio` field containing the URL
-2. The system calls `client.TranscribeAudio(audioURL)` 
-3. The transcribed text is processed by the chatbot
-
-### Message Processing
+### From HTTP Download
 
 ```go
-func processAudioMessage(message InboundMessage) (string, error) {
-    if message.Audio == nil || message.Audio.URL == "" {
-        return "", nil
-    }
+// Download audio first
+resp, err := http.Get("https://example.com/audio.mp3")
+if err != nil {
+    log.Fatal(err)
+}
+defer resp.Body.Close()
 
-    return ElevenLabsClient.TranscribeAudio(message.Audio.URL)
+// Transcribe the downloaded audio
+text, err := client.TranscribeAudioFile(resp.Body, "audio.mp3")
+if err != nil {
+    log.Fatal(err)
 }
 ```
 
-### Message Structure
+### From Byte Data
 
-WhatsApp audio messages have this structure:
+```go
+audioData := []byte{/* audio file content */}
+reader := bytes.NewReader(audioData)
 
-```json
-{
-  "message_type": "audio",
-  "audio": {
-    "url": "https://example.com/audio.mp3"
-  },
-  "from": "1234567890",
-  "message_uuid": "uuid-here"
+text, err := client.TranscribeAudioFile(reader, "audio.wav")
+if err != nil {
+    log.Fatal(err)
 }
 ```
 
@@ -120,63 +104,57 @@ WhatsApp audio messages have this structure:
 
 ### Client
 
-#### `NewClient(apiKey string, httpClient http.Client) Client`
+#### `NewClient(apiKey string, languageCode string, httpClient http.Client) Client`
 
 Creates a new ElevenLabs client.
 
-#### `TranscribeAudio(url string) (string, error)`
+**Parameters:**
+- `apiKey`: Your ElevenLabs API key
+- `languageCode`: Language code (e.g., "en", "es", "fr") or empty string for auto-detection
+- `httpClient`: HTTP client for making requests
 
-**Main method for simple audio transcription.** Takes an audio URL and returns the transcribed text.
+#### `TranscribeAudioFile(file io.Reader, fileName string) (string, error)`
 
-#### `ProcessAudioFromURL(url string, language string) (*SpeechToTextResponse, error)`
+**The only public method.** Transcribes audio and returns the text.
 
-Advanced method that returns the full response with language detection and confidence scores.
+**Parameters:**
+- `file`: An `io.Reader` containing the audio data
+- `fileName`: The name of the file (used for format detection)
 
-#### `TranscribeAudioFile(file io.Reader, fileName string, languageCode string) (*SpeechToTextResponse, error)`
-
-Transcribes audio files directly.
-
-#### `SpeechToText(req SpeechToTextRequest) (*SpeechToTextResponse, error)`
-
-Low-level method for full control over all parameters.
+**Returns:**
+- `string`: The transcribed text
+- `error`: Any error that occurred
 
 ### Types
 
-#### `SpeechToTextResponse`
+#### `SpeechToTextResponse` (internal)
 
 ```go
 type SpeechToTextResponse struct {
-    LanguageCode        string  // Detected language
-    LanguageProbability float64 // Language confidence (0-1)
-    Text                string  // Transcribed text
-    Words               []Word  // Word-level details
+    LanguageCode        string  `json:"language_code"`
+    LanguageProbability float64 `json:"language_probability"`
+    Text                string  `json:"text"`
 }
 ```
 
-#### `Word`
+#### `APIError`
 
 ```go
-type Word struct {
-    Text      string  // Word text
-    Type      string  // "word" or "spacing"
-    LogProb   float64 // Log probability
-    Start     float64 // Start time in seconds
-    End       float64 // End time in seconds
-    SpeakerID string  // Speaker identifier
+type APIError struct {
+    StatusCode int    `json:"status_code"`
+    Message    string `json:"message"`
+    Detail     string `json:"detail,omitempty"`
 }
 ```
 
 ## Supported Audio Formats
 
-- **Audio**: MP3, WAV, OGG, AAC, FLAC, M4A, WebM
-- **Raw**: PCM 16-bit 16kHz (for lower latency)
+- MP3, WAV, OGG, AAC, FLAC, M4A, WebM
 
 ## Error Handling
 
-The package provides comprehensive error handling:
-
 ```go
-transcribedText, err := client.TranscribeAudio("https://example.com/audio.mp3")
+text, err := client.TranscribeAudioFile(file, "audio.mp3")
 if err != nil {
     if apiErr, ok := err.(elevenlabs.APIError); ok {
         fmt.Printf("API Error %d: %s\n", apiErr.StatusCode, apiErr.Message)
@@ -187,52 +165,85 @@ if err != nil {
 }
 ```
 
-## Logging
-
-The package uses structured logging with zerolog. Log levels:
-
-- **Debug**: Request/response details
-- **Info**: Successful operations and results
-- **Warn**: Non-critical issues (e.g., missing API key)
-- **Error**: Failed operations
-
 ## Configuration
 
-### Environment Variables
+### Language Codes
 
-- `ELEVENLABS_API_KEY`: Your ElevenLabs API key (required)
+Common language codes:
+- `""` - Auto-detection
+- `"en"` - English
+- `"es"` - Spanish  
+- `"fr"` - French
+- `"de"` - German
+- `"it"` - Italian
+- `"pt"` - Portuguese
 
-### Default Settings
+### Model
 
-- **Model**: `scribe_v1`
-- **Tag Audio Events**: `true`
-- **Timestamps Granularity**: `word`
-- **Language Detection**: Auto-detect
+Uses ElevenLabs' default `scribe_v1` model.
 
 ## Examples
 
-### Basic Usage
+### Auto Language Detection
 
 ```go
-// Simple transcription - recommended approach
-text, err := client.TranscribeAudio("https://example.com/audio.mp3")
-if err != nil {
-    log.Fatal(err)
-}
-fmt.Println("Transcribed:", text)
+client := elevenlabs.NewClient(apiKey, "", httpClient)
+text, err := client.TranscribeAudioFile(file, "audio.mp3")
 ```
 
-### With Language Detection Info
+### English Only
 
 ```go
-response, err := client.ProcessAudioFromURL("https://example.com/audio.mp3", "")
-if err != nil {
-    log.Fatal(err)
-}
+client := elevenlabs.NewClient(apiKey, "en", httpClient)
+text, err := client.TranscribeAudioFile(file, "audio.mp3")
+```
 
-fmt.Printf("Text: %s\n", response.Text)
-fmt.Printf("Language: %s (%.2f confidence)\n", 
-    response.LanguageCode, response.LanguageProbability)
+### Multiple Files
+
+```go
+client := elevenlabs.NewClient(apiKey, "", httpClient)
+
+files := []string{"audio1.mp3", "audio2.wav", "audio3.m4a"}
+for _, filename := range files {
+    file, err := os.Open(filename)
+    if err != nil {
+        continue
+    }
+    
+    text, err := client.TranscribeAudioFile(file, filename)
+    if err != nil {
+        log.Printf("Error transcribing %s: %v", filename, err)
+        file.Close()
+        continue
+    }
+    
+    fmt.Printf("%s: %s\n", filename, text)
+    file.Close()
+}
+```
+
+## Integration Example
+
+```go
+// In your main.go
+ElevenLabsClient = elevenlabs.NewClient(
+    appConfig.ElevenLabsAPIKey,
+    "", // auto-detection
+    httpClient,
+)
+
+// Usage in message processing
+func processAudioMessage(audioURL string) (string, error) {
+    // Download audio
+    resp, err := http.Get(audioURL)
+    if err != nil {
+        return "", err
+    }
+    defer resp.Body.Close()
+    
+    // Transcribe
+    return ElevenLabsClient.TranscribeAudioFile(resp.Body, "audio.mp3")
+}
 ```
 
 ## Troubleshooting
@@ -240,14 +251,14 @@ fmt.Printf("Language: %s (%.2f confidence)\n",
 ### Common Issues
 
 1. **Missing API Key**: Ensure `ELEVENLABS_API_KEY` is set
-2. **File Size**: Maximum file size is 1GB for uploads, 2GB for cloud URLs
-3. **Network Issues**: Check internet connectivity and firewall settings
-4. **Audio Format**: Ensure audio format is supported
+2. **File Size**: Maximum 1GB file size
+3. **Format**: Ensure audio format is supported
+4. **Network**: Check connectivity
 
-### Debug Mode
+### Debug Logging
 
-Enable debug logging to see detailed request/response information:
+The package logs transcription results automatically:
 
-```go
-log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel)
+```
+INFO: Audio transcription completed transcribed_text="Hello world" detected_language="en" confidence=0.98
 ``` 
