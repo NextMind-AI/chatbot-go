@@ -26,6 +26,7 @@ func main() {
 		appConfig.VonageJWT,
 		appConfig.GeospecificMessagesAPIURL,
 		appConfig.MessagesAPIURL,
+		appConfig.SenderID,
 		httpClient,
 	)
 

@@ -18,7 +18,6 @@ type streamingConfig struct {
 	vonageClient *vonage.Client
 	redisClient  *redis.Client
 	toNumber     string
-	senderID     string
 	useTools     bool
 }
 
@@ -32,7 +31,6 @@ func (c *Client) ProcessChatStreaming(
 	vonageClient *vonage.Client,
 	redisClient *redis.Client,
 	toNumber string,
-	senderID string,
 ) error {
 	config := streamingConfig{
 		userID:       userID,
@@ -40,7 +38,6 @@ func (c *Client) ProcessChatStreaming(
 		vonageClient: vonageClient,
 		redisClient:  redisClient,
 		toNumber:     toNumber,
-		senderID:     senderID,
 		useTools:     false,
 	}
 	return c.processStreamingChat(ctx, config)
@@ -55,7 +52,6 @@ func (c *Client) ProcessChatStreamingWithTools(
 	vonageClient *vonage.Client,
 	redisClient *redis.Client,
 	toNumber string,
-	senderID string,
 ) error {
 	config := streamingConfig{
 		userID:       userID,
@@ -63,7 +59,6 @@ func (c *Client) ProcessChatStreamingWithTools(
 		vonageClient: vonageClient,
 		redisClient:  redisClient,
 		toNumber:     toNumber,
-		senderID:     senderID,
 		useTools:     true,
 	}
 	return c.processStreamingChat(ctx, config)
@@ -152,7 +147,6 @@ func (c *Client) streamResponse(
 
 					response, err := config.vonageClient.SendWhatsAppTextMessage(
 						config.toNumber,
-						config.senderID,
 						msg.Content,
 					)
 					if err != nil {

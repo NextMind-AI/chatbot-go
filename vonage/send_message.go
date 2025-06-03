@@ -1,13 +1,13 @@
 package vonage
 
-func (c *Client) SendWhatsAppTextMessage(toNumber, senderID, text string) (*MessageResponse, error) {
-	message := c.createWhatsAppMessage(toNumber, senderID, text, nil)
+func (c *Client) SendWhatsAppTextMessage(toNumber, text string) (*MessageResponse, error) {
+	message := c.createWhatsAppMessage(toNumber, c.config.SenderID, text, nil)
 	return c.sendMessageRequest("POST", c.config.MessagesAPIURL, message)
 }
 
-func (c *Client) SendWhatsAppReplyMessage(toNumber, senderID, text, messageUUID string) (*MessageResponse, error) {
+func (c *Client) SendWhatsAppReplyMessage(toNumber, text, messageUUID string) (*MessageResponse, error) {
 	context := &Context{MessageUUID: messageUUID}
-	message := c.createWhatsAppMessage(toNumber, senderID, text, context)
+	message := c.createWhatsAppMessage(toNumber, c.config.SenderID, text, context)
 	return c.sendMessageRequest("POST", c.config.MessagesAPIURL, message)
 }
 

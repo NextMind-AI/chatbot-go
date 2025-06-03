@@ -18,6 +18,7 @@ type Config struct {
 	RedisAddr                 string
 	RedisPassword             string
 	RedisDB                   int
+	SenderID                  string
 }
 
 func Load() *Config {
@@ -33,6 +34,7 @@ func Load() *Config {
 		RedisAddr:                 getEnv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:             getEnv("REDIS_PASSWORD", ""),
 		RedisDB:                   getEnvInt("REDIS_DB", 0),
+		SenderID:                  getEnv("SENDER_ID", ""),
 	}
 
 	if cfg.VonageJWT == "" {
@@ -45,6 +47,10 @@ func Load() *Config {
 
 	if cfg.ElevenLabsAPIKey == "" {
 		log.Fatal().Msg("ELEVENLABS_API_KEY environment variable is required")
+	}
+
+	if cfg.SenderID == "" {
+		log.Fatal().Msg("SENDER_ID environment variable is required")
 	}
 
 	return cfg

@@ -4,6 +4,7 @@ type Config struct {
 	VonageJWT                 string
 	GeospecificMessagesAPIURL string
 	MessagesAPIURL            string
+	SenderID                  string
 }
 
 type Context struct {

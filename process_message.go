@@ -48,7 +48,6 @@ func processMessage(message InboundMessage) {
 
 		if _, err := VonageClient.SendWhatsAppTextMessage(
 			message.From,
-			"5585936181311",
 			"I can't process this message type for now",
 		); err != nil {
 			log.Error().
@@ -98,7 +97,6 @@ func processMessage(message InboundMessage) {
 		&VonageClient,
 		&RedisClient,
 		message.From,
-		"5585936181311",
 	)
 	if err != nil {
 		log.Error().
