@@ -46,9 +46,10 @@ func processMessage(message InboundMessage) {
 			Str("message_uuid", message.MessageUUID).
 			Msg("Unsupported message type")
 
-		if _, err := VonageClient.SendWhatsAppTextMessage(
+		if _, err := VonageClient.SendWhatsAppReplyMessage(
 			message.From,
 			"I can't process this message type for now",
+			message.MessageUUID,
 		); err != nil {
 			log.Error().
 				Err(err).
