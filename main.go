@@ -22,7 +22,7 @@ var ElevenLabsClient elevenlabs.Client
 var AppConfig *config.Config
 
 func main() {
-	var AppConfig = config.Load()
+	AppConfig = config.Load()
 
 	var httpClient = http.Client{}
 
