@@ -12,6 +12,8 @@ type Config struct {
 	VonageJWT                 string
 	OpenAIKey                 string
 	ElevenLabsAPIKey          string
+	ElevenLabsVoiceID         string
+	ElevenLabsModelID         string
 	Port                      string
 	GeospecificMessagesAPIURL string
 	MessagesAPIURL            string
@@ -32,6 +34,8 @@ func Load() *Config {
 		VonageJWT:                 getEnv("VONAGE_JWT", ""),
 		OpenAIKey:                 getEnv("OPENAI_API_KEY", ""),
 		ElevenLabsAPIKey:          getEnv("ELEVENLABS_API_KEY", ""),
+		ElevenLabsVoiceID:         getEnv("ELEVENLABS_VOICE_ID", "JNI7HKGyqNaHqfihNoCi"),
+		ElevenLabsModelID:         getEnv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2"),
 		Port:                      getEnv("PORT", "8080"),
 		GeospecificMessagesAPIURL: getEnv("GEOSPECIFIC_MESSAGES_API_URL", "https://api-us.nexmo.com/v1/messages"),
 		MessagesAPIURL:            getEnv("MESSAGES_API_URL", "https://api.nexmo.com/v1/messages"),
@@ -55,6 +59,14 @@ func Load() *Config {
 
 	if cfg.ElevenLabsAPIKey == "" {
 		log.Fatal().Msg("ELEVENLABS_API_KEY environment variable is required")
+	}
+
+	if cfg.ElevenLabsVoiceID == "" {
+		log.Fatal().Msg("ELEVENLABS_VOICE_ID environment variable is required")
+	}
+
+	if cfg.ElevenLabsModelID == "" {
+		log.Fatal().Msg("ELEVENLABS_MODEL_ID environment variable is required")
 	}
 
 	if cfg.PhoneNumber == "" {

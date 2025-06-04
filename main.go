@@ -19,17 +19,18 @@ var VonageClient vonage.Client
 var OpenAIClient openai.Client
 var RedisClient redis.Client
 var ElevenLabsClient elevenlabs.Client
+var AppConfig *config.Config
 
 func main() {
-	var appConfig = config.Load()
+	var AppConfig = config.Load()
 
 	var httpClient = http.Client{}
 
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(appConfig.S3Region),
+		Region: aws.String(AppConfig.S3Region),
 		Credentials: credentials.NewStaticCredentials(
-			appConfig.AWSAccessKeyID,
-			appConfig.AWSSecretAccessKey,
+			AppConfig.AWSAccessKeyID,
+			AppConfig.AWSSecretAccessKey,
 			"",
 		),
 	})
@@ -38,39 +39,39 @@ func main() {
 	}
 
 	VonageClient = vonage.NewClient(
-		appConfig.VonageJWT,
-		appConfig.GeospecificMessagesAPIURL,
-		appConfig.MessagesAPIURL,
-		appConfig.PhoneNumber,
+		AppConfig.VonageJWT,
+		AppConfig.GeospecificMessagesAPIURL,
+		AppConfig.MessagesAPIURL,
+		AppConfig.PhoneNumber,
 		httpClient,
 	)
 
 	OpenAIClient = openai.NewClient(
-		appConfig.OpenAIKey,
+		AppConfig.OpenAIKey,
 		httpClient,
 	)
 
 	RedisClient = redis.NewClient(
-		appConfig.RedisAddr,
-		appConfig.RedisPassword,
-		appConfig.RedisDB,
+		AppConfig.RedisAddr,
+		AppConfig.RedisPassword,
+		AppConfig.RedisDB,
 	)
 
 	ElevenLabsClient = elevenlabs.NewClient(
-		appConfig.ElevenLabsAPIKey,
+		AppConfig.ElevenLabsAPIKey,
 		httpClient,
 		sess,
-		appConfig.S3Bucket,
-		appConfig.S3Region,
+		AppConfig.S3Bucket,
+		AppConfig.S3Region,
 	)
 
 	app := fiber.New()
 
 	app.Post("/webhooks/inbound-message", inboundMessageHandler)
 
-	log.Info().Str("port", appConfig.Port).Msg("Starting chatbot server")
+	log.Info().Str("port", AppConfig.Port).Msg("Starting chatbot server")
 
-	err = app.Listen(":"+appConfig.Port, fiber.ListenConfig{
+	err = app.Listen(":"+AppConfig.Port, fiber.ListenConfig{
 		DisableStartupMessage: true,
 	})
 	if err != nil {

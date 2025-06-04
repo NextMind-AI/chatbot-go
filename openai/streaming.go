@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"chatbot/elevenlabs"
 	"chatbot/redis"
 	"chatbot/vonage"
 	"context"
@@ -13,12 +14,15 @@ import (
 
 // streamingConfig holds the configuration for a streaming chat completion request.
 type streamingConfig struct {
-	userID       string
-	chatHistory  []redis.ChatMessage
-	vonageClient *vonage.Client
-	redisClient  *redis.Client
-	toNumber     string
-	useTools     bool
+	userID           string
+	chatHistory      []redis.ChatMessage
+	vonageClient     *vonage.Client
+	redisClient      *redis.Client
+	elevenLabsClient *elevenlabs.Client
+	voiceID          string
+	modelID          string
+	toNumber         string
+	useTools         bool
 }
 
 // ProcessChatStreaming processes a chat conversation with streaming response.
@@ -30,15 +34,21 @@ func (c *Client) ProcessChatStreaming(
 	chatHistory []redis.ChatMessage,
 	vonageClient *vonage.Client,
 	redisClient *redis.Client,
+	elevenLabsClient *elevenlabs.Client,
+	voiceID string,
+	modelID string,
 	toNumber string,
 ) error {
 	config := streamingConfig{
-		userID:       userID,
-		chatHistory:  chatHistory,
-		vonageClient: vonageClient,
-		redisClient:  redisClient,
-		toNumber:     toNumber,
-		useTools:     false,
+		userID:           userID,
+		chatHistory:      chatHistory,
+		vonageClient:     vonageClient,
+		redisClient:      redisClient,
+		elevenLabsClient: elevenLabsClient,
+		voiceID:          voiceID,
+		modelID:          modelID,
+		toNumber:         toNumber,
+		useTools:         false,
 	}
 	return c.processStreamingChat(ctx, config)
 }
@@ -51,15 +61,21 @@ func (c *Client) ProcessChatStreamingWithTools(
 	chatHistory []redis.ChatMessage,
 	vonageClient *vonage.Client,
 	redisClient *redis.Client,
+	elevenLabsClient *elevenlabs.Client,
+	voiceID string,
+	modelID string,
 	toNumber string,
 ) error {
 	config := streamingConfig{
-		userID:       userID,
-		chatHistory:  chatHistory,
-		vonageClient: vonageClient,
-		redisClient:  redisClient,
-		toNumber:     toNumber,
-		useTools:     true,
+		userID:           userID,
+		chatHistory:      chatHistory,
+		vonageClient:     vonageClient,
+		redisClient:      redisClient,
+		elevenLabsClient: elevenLabsClient,
+		voiceID:          voiceID,
+		modelID:          modelID,
+		toNumber:         toNumber,
+		useTools:         true,
 	}
 	return c.processStreamingChat(ctx, config)
 }
@@ -143,20 +159,61 @@ func (c *Client) streamResponse(
 						Str("user_id", config.userID).
 						Int("message_index", messageIndex).
 						Str("content", msg.Content).
-						Msg("Sending streamed message via Vonage")
+						Str("type", msg.Type).
+						Msg("Processing streamed message")
 
-					response, err := config.vonageClient.SendWhatsAppTextMessage(
-						config.toNumber,
-						msg.Content,
-					)
-					if err != nil {
-						log.Error().
-							Err(err).
-							Str("user_id", config.userID).
-							Str("to", config.toNumber).
-							Str("content", response.MessageUUID).
-							Msg("Error sending streamed WhatsApp message")
+					if msg.Type == "audio" {
+						audioURL, err := config.elevenLabsClient.ConvertTextToSpeech(
+							config.voiceID,
+							msg.Content,
+							config.modelID,
+						)
+						if err != nil {
+							log.Error().
+								Err(err).
+								Str("user_id", config.userID).
+								Str("content", msg.Content).
+								Msg("Error converting text to speech")
+							continue
+						}
 
+						response, err := config.vonageClient.SendWhatsAppAudioMessage(
+							config.toNumber,
+							audioURL,
+						)
+						if err != nil {
+							log.Error().
+								Err(err).
+								Str("user_id", config.userID).
+								Str("to", config.toNumber).
+								Str("audio_url", audioURL).
+								Msg("Error sending WhatsApp audio message")
+						} else {
+							log.Info().
+								Str("user_id", config.userID).
+								Str("message_uuid", response.MessageUUID).
+								Str("audio_url", audioURL).
+								Msg("Sent audio message via Vonage")
+						}
+					} else {
+						response, err := config.vonageClient.SendWhatsAppTextMessage(
+							config.toNumber,
+							msg.Content,
+						)
+						if err != nil {
+							log.Error().
+								Err(err).
+								Str("user_id", config.userID).
+								Str("to", config.toNumber).
+								Str("content", msg.Content).
+								Msg("Error sending WhatsApp text message")
+						} else {
+							log.Info().
+								Str("user_id", config.userID).
+								Str("message_uuid", response.MessageUUID).
+								Str("content", msg.Content).
+								Msg("Sent text message via Vonage")
+						}
 					}
 				}
 			}

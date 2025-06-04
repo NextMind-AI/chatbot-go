@@ -97,6 +97,9 @@ func processMessage(message InboundMessage) {
 		chatHistory,
 		&VonageClient,
 		&RedisClient,
+		&ElevenLabsClient,
+		AppConfig.ElevenLabsVoiceID,
+		AppConfig.ElevenLabsModelID,
 		userID,
 	)
 	if err != nil {

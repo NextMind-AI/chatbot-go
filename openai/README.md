@@ -75,7 +75,14 @@ The package supports OpenAI's function calling (tools) feature, currently implem
 ### 3. Structured Output
 Uses OpenAI's JSON schema validation to ensure responses are properly formatted as message lists, preventing parsing errors and ensuring consistent output.
 
-### 4. Error Handling
+### 4. Audio Message Support
+The package now supports generating audio messages through ElevenLabs integration:
+- **Audio Message Type**: Messages can be marked as type "audio" in the response
+- **Text-to-Speech Conversion**: Automatically converts message content to speech using ElevenLabs API
+- **WhatsApp Audio Delivery**: Sends audio messages via WhatsApp using the Vonage API
+- **Configurable Voice**: Uses configurable voice ID and model ID for speech generation
+
+### 5. Error Handling
 Comprehensive error logging using zerolog, with contextual information including:
 - User IDs for tracking
 - Error details for debugging
@@ -88,15 +95,17 @@ Comprehensive error logging using zerolog, with contextual information including
 httpClient := &http.Client{Timeout: 30 * time.Second}
 openaiClient := openai.NewClient(apiKey, httpClient)
 
-// Process a streaming chat with tools
+// Process a streaming chat with tools and audio support
 err := openaiClient.ProcessChatStreamingWithTools(
     ctx,
     userID,
     chatHistory,
     vonageClient,
     redisClient,
+    elevenLabsClient,
+    voiceID,
+    modelID,
     toNumber,
-    senderID,
 )
 ```
 
@@ -123,7 +132,7 @@ err := openaiClient.ProcessChatStreamingWithTools(
 - `github.com/openai/openai-go`: Official OpenAI Go client
 - `github.com/invopop/jsonschema`: JSON schema generation
 - `github.com/rs/zerolog`: Structured logging
-- Internal packages: `redis`, `vonage` for integration
+- Internal packages: `redis`, `vonage`, `elevenlabs` for integration and audio support
 
 ## Future Enhancements
 
