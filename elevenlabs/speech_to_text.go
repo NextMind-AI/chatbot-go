@@ -11,6 +11,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const SpeechToTextPath = "/speech-to-text"
+
 func (c *Client) TranscribeAudio(url string) (string, error) {
 	log.Info().Str("url", url).Msg("Downloading and transcribing audio from URL")
 
@@ -25,6 +27,10 @@ func (c *Client) TranscribeAudio(url string) (string, error) {
 	}
 
 	return c.transcribeAudioFile(resp.Body, "audio.mp3")
+}
+
+func (c *Client) TranscribeAudioFile(file io.Reader, fileName string) (string, error) {
+	return c.transcribeAudioFile(file, fileName)
 }
 
 func (c *Client) transcribeAudioFile(file io.Reader, fileName string) (string, error) {

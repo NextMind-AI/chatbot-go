@@ -10,6 +10,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const TextToSpeechPath = "/text-to-speech"
+
 func (c *Client) ConvertTextToSpeech(voiceID string, text string, modelID string) ([]byte, error) {
 	log.Info().
 		Str("voice_id", voiceID).
