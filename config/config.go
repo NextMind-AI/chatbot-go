@@ -50,7 +50,7 @@ func Load() *Config {
 	}
 
 	if cfg.PhoneNumber == "" {
-		log.Fatal().Msg("SENDER_ID environment variable is required")
+		log.Fatal().Msg("PHONE_NUMBER environment variable is required")
 	}
 
 	return cfg
