@@ -27,7 +27,8 @@ func main() {
 	var httpClient = http.Client{}
 
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(AppConfig.S3Region),
+		Region:           aws.String(AppConfig.S3Region),
+		S3ForcePathStyle: aws.Bool(false),
 		Credentials: credentials.NewStaticCredentials(
 			AppConfig.AWSAccessKeyID,
 			AppConfig.AWSSecretAccessKey,
