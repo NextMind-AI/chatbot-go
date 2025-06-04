@@ -7,6 +7,7 @@ import (
 const (
 	BaseURL          = "https://api.elevenlabs.io"
 	SpeechToTextPath = "/v1/speech-to-text"
+	TextToSpeechPath = "/v1/text-to-speech"
 	DefaultModel     = "scribe_v1"
 )
 

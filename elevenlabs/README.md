@@ -1,11 +1,12 @@
-# ElevenLabs Speech-to-Text Integration
+# ElevenLabs Speech-to-Text and Text-to-Speech Integration
 
-Simple and clean integration with ElevenLabs' speech-to-text API for transcribing audio files.
+Simple and clean integration with ElevenLabs' speech-to-text and text-to-speech APIs.
 
 ## Features
 
-- **Single Method API**: One simple method to transcribe audio files
-- **Configurable Language**: Set language code in client constructor 
+- **Speech-to-Text**: Transcribe audio files to text
+- **Text-to-Speech**: Convert text to audio with voice selection
+- **Single Method APIs**: Simple methods for both operations
 - **Multiple Audio Formats**: Support for MP3, WAV, OGG, AAC, FLAC, M4A, WebM
 - **Clean Error Handling**: Simple error responses
 
@@ -39,8 +40,7 @@ import (
 )
 
 func main() {
-    // Create client with language code (empty string for auto-detection)
-    client := elevenlabs.NewClient("your-api-key", "", http.Client{})
+    client := elevenlabs.NewClient("your-api-key", http.Client{})
     
     // Open audio file
     file, err := os.Open("audio.mp3")
@@ -59,15 +59,34 @@ func main() {
 }
 ```
 
-### With Specific Language
+### Text-to-Speech Usage
 
 ```go
-// Create client with specific language
-client := elevenlabs.NewClient("your-api-key", "en", http.Client{})
+package main
 
-text, err := client.TranscribeAudioFile(file, "audio.mp3")
-if err != nil {
-    log.Fatal(err)
+import (
+    "chatbot/elevenlabs"
+    "net/http"
+    "os"
+)
+
+func main() {
+    client := elevenlabs.NewClient("your-api-key", http.Client{})
+    
+    voiceID := "JBFqnCBsd6RMkjVDRZzb"
+    text := "The first move is what sets everything in motion."
+    modelID := "eleven_multilingual_v2"
+    
+    audioData, err := client.ConvertTextToSpeech(voiceID, text, modelID)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Save to file
+    err = os.WriteFile("output.mp3", audioData, 0644)
+    if err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
@@ -104,13 +123,12 @@ if err != nil {
 
 ### Client
 
-#### `NewClient(apiKey string, languageCode string, httpClient http.Client) Client`
+#### `NewClient(apiKey string, httpClient http.Client) Client`
 
 Creates a new ElevenLabs client.
 
 **Parameters:**
 - `apiKey`: Your ElevenLabs API key
-- `languageCode`: Language code (e.g., "en", "es", "fr") or empty string for auto-detection
 - `httpClient`: HTTP client for making requests
 
 #### `TranscribeAudioFile(file io.Reader, fileName string) (string, error)`
@@ -125,6 +143,19 @@ Creates a new ElevenLabs client.
 - `string`: The transcribed text
 - `error`: Any error that occurred
 
+#### `ConvertTextToSpeech(voiceID string, text string, modelID string) ([]byte, error)`
+
+Converts text to speech and returns audio data.
+
+**Parameters:**
+- `voiceID`: ID of the voice to be used
+- `text`: The text to convert to speech
+- `modelID`: Model ID (e.g., "eleven_multilingual_v2")
+
+**Returns:**
+- `[]byte`: The generated audio data
+- `error`: Any error that occurred
+
 ### Types
 
 #### `SpeechToTextResponse` (internal)
@@ -134,6 +165,15 @@ type SpeechToTextResponse struct {
     LanguageCode        string  `json:"language_code"`
     LanguageProbability float64 `json:"language_probability"`
     Text                string  `json:"text"`
+}
+```
+
+#### `TextToSpeechRequest` (internal)
+
+```go
+type TextToSpeechRequest struct {
+    Text    string `json:"text"`
+    ModelID string `json:"model_id,omitempty"`
 }
 ```
 
@@ -167,41 +207,16 @@ if err != nil {
 
 ## Configuration
 
-### Language Codes
-
-Common language codes:
-- `""` - Auto-detection
-- `"en"` - English
-- `"es"` - Spanish  
-- `"fr"` - French
-- `"de"` - German
-- `"it"` - Italian
-- `"pt"` - Portuguese
-
 ### Model
 
 Uses ElevenLabs' default `scribe_v1` model.
 
 ## Examples
 
-### Auto Language Detection
-
-```go
-client := elevenlabs.NewClient(apiKey, "", httpClient)
-text, err := client.TranscribeAudioFile(file, "audio.mp3")
-```
-
-### English Only
-
-```go
-client := elevenlabs.NewClient(apiKey, "en", httpClient)
-text, err := client.TranscribeAudioFile(file, "audio.mp3")
-```
-
 ### Multiple Files
 
 ```go
-client := elevenlabs.NewClient(apiKey, "", httpClient)
+client := elevenlabs.NewClient(apiKey, httpClient)
 
 files := []string{"audio1.mp3", "audio2.wav", "audio3.m4a"}
 for _, filename := range files {
@@ -222,13 +237,51 @@ for _, filename := range files {
 }
 ```
 
+## Text-to-Speech Examples
+
+### Basic Usage
+
+```go
+client := elevenlabs.NewClient(apiKey, httpClient)
+audioData, err := client.ConvertTextToSpeech("voice-id", "Hello world", "eleven_multilingual_v2")
+```
+
+### Save to File
+
+```go
+audioData, err := client.ConvertTextToSpeech(voiceID, text, modelID)
+if err != nil {
+    log.Fatal(err)
+}
+
+err = os.WriteFile("speech.mp3", audioData, 0644)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Stream to HTTP Response
+
+```go
+func handleTextToSpeech(w http.ResponseWriter, r *http.Request) {
+    audioData, err := client.ConvertTextToSpeech(voiceID, text, modelID)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    w.Header().Set("Content-Type", "audio/mpeg")
+    w.Header().Set("Content-Length", strconv.Itoa(len(audioData)))
+    w.Write(audioData)
+}
+```
+
 ## Integration Example
 
 ```go
 // In your main.go
 ElevenLabsClient = elevenlabs.NewClient(
     appConfig.ElevenLabsAPIKey,
-    "", // auto-detection
     httpClient,
 )
 

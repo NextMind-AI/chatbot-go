@@ -8,6 +8,11 @@ type SpeechToTextResponse struct {
 	Text                string  `json:"text"`
 }
 
+type TextToSpeechRequest struct {
+	Text    string `json:"text"`
+	ModelID string `json:"model_id,omitempty"`
+}
+
 type APIError struct {
 	StatusCode int    `json:"status_code"`
 	Message    string `json:"message"`
