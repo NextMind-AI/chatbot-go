@@ -26,8 +26,7 @@ func main() {
 	var httpClient = http.Client{}
 
 	sess, err := session.NewSession(&aws.Config{
-		Region:   aws.String(AppConfig.S3Region),
-		LogLevel: aws.LogLevel(aws.LogDebugWithHTTPBody | aws.LogDebugWithRequestErrors),
+		Region: aws.String(AppConfig.S3Region),
 	})
 	// Alternative: If environment variables don't work, uncomment the lines below:
 	// sess, err := session.NewSessionWithOptions(session.Options{
