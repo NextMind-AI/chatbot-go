@@ -16,8 +16,13 @@ type WhatsAppMessage struct {
 	From        string   `json:"from"`
 	Channel     string   `json:"channel"`
 	MessageType string   `json:"message_type"`
-	Text        string   `json:"text"`
+	Text        string   `json:"text,omitempty"`
+	Audio       *Audio   `json:"audio,omitempty"`
 	Context     *Context `json:"context,omitempty"`
+}
+
+type Audio struct {
+	URL string `json:"url"`
 }
 
 type MessageResponse struct {
