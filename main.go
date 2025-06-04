@@ -9,7 +9,6 @@ import (
 	"net/http"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog/log"
@@ -27,17 +26,27 @@ func main() {
 	var httpClient = http.Client{}
 
 	sess, err := session.NewSession(&aws.Config{
-		Region:           aws.String(AppConfig.S3Region),
-		S3ForcePathStyle: aws.Bool(false),
-		Credentials: credentials.NewStaticCredentials(
-			AppConfig.AWSAccessKeyID,
-			AppConfig.AWSSecretAccessKey,
-			"",
-		),
+		Region: aws.String(AppConfig.S3Region),
 	})
+	// Alternative: If environment variables don't work, uncomment the lines below:
+	// sess, err := session.NewSessionWithOptions(session.Options{
+	// 	Config: aws.Config{
+	// 		Region: aws.String(AppConfig.S3Region),
+	// 		Credentials: credentials.NewStaticCredentials(
+	// 			AppConfig.AWSAccessKeyID,
+	// 			AppConfig.AWSSecretAccessKey,
+	// 			"",
+	// 		),
+	// 	},
+	// })
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create AWS session")
 	}
+
+	log.Info().
+		Str("bucket", AppConfig.S3Bucket).
+		Str("region", AppConfig.S3Region).
+		Msg("AWS session created successfully")
 
 	VonageClient = vonage.NewClient(
 		AppConfig.VonageJWT,
