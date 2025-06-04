@@ -28,17 +28,7 @@ func main() {
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(AppConfig.S3Region),
 	})
-	// Alternative: If environment variables don't work, uncomment the lines below:
-	// sess, err := session.NewSessionWithOptions(session.Options{
-	// 	Config: aws.Config{
-	// 		Region: aws.String(AppConfig.S3Region),
-	// 		Credentials: credentials.NewStaticCredentials(
-	// 			AppConfig.AWSAccessKeyID,
-	// 			AppConfig.AWSSecretAccessKey,
-	// 			"",
-	// 		),
-	// 	},
-	// })
+
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create AWS session")
 	}

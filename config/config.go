@@ -77,14 +77,13 @@ func Load() *Config {
 		log.Fatal().Msg("AWS_S3_BUCKET environment variable is required")
 	}
 
-	// Comment out these checks if using environment variables for AWS credentials:
-	// if cfg.AWSAccessKeyID == "" {
-	// 	log.Fatal().Msg("AWS_ACCESS_KEY_ID environment variable is required")
-	// }
+	if cfg.AWSAccessKeyID == "" {
+		log.Fatal().Msg("AWS_ACCESS_KEY_ID environment variable is required")
+	}
 
-	// if cfg.AWSSecretAccessKey == "" {
-	// 	log.Fatal().Msg("AWS_SECRET_ACCESS_KEY environment variable is required")
-	// }
+	if cfg.AWSSecretAccessKey == "" {
+		log.Fatal().Msg("AWS_SECRET_ACCESS_KEY environment variable is required")
+	}
 
 	return cfg
 }
