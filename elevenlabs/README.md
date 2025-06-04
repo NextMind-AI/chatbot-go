@@ -5,19 +5,24 @@ Simple and clean integration with ElevenLabs' speech-to-text and text-to-speech 
 ## Features
 
 - **Speech-to-Text**: Transcribe audio files to text
-- **Text-to-Speech**: Convert text to audio with voice selection
+- **Text-to-Speech**: Convert text to audio with voice selection and upload to S3
 - **Single Method APIs**: Simple methods for both operations
 - **Multiple Audio Formats**: Support for MP3, WAV, OGG, AAC, FLAC, M4A, WebM
+- **S3 Integration**: Automatic upload of generated audio to S3 bucket
 - **Clean Error Handling**: Simple error responses
 
 ## Setup
 
 ### Environment Variables
 
-Add your ElevenLabs API key to your `.env` file:
+Add your ElevenLabs API key and AWS configuration to your `.env` file:
 
 ```env
 ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+AWS_S3_BUCKET=your-s3-bucket-name
+AWS_REGION=us-east-2
+AWS_ACCESS_KEY_ID=your_aws_access_key_id
+AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
 ```
 
 ### Get ElevenLabs API Key
@@ -25,6 +30,38 @@ ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 1. Sign up at [ElevenLabs](https://elevenlabs.io/)
 2. Navigate to your profile settings
 3. Generate an API key
+
+### AWS Setup
+
+1. **Create an S3 bucket with public read access**
+   - Go to AWS S3 Console
+   - Create a new bucket
+   - Note the bucket name and region
+
+2. **Create IAM User with S3 permissions**
+   - Go to AWS IAM Console
+   - Create a new user with programmatic access
+   - Attach the `AmazonS3FullAccess` policy (or create a custom policy with s3:PutObject and s3:PutObjectAcl permissions)
+   - Save the Access Key ID and Secret Access Key
+
+3. **Configure bucket for public read access**
+   - Either use bucket ACLs with `public-read` for uploaded objects
+   - Or set up a bucket policy to allow public read access:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadGetObject",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::your-bucket-name/*"
+    }
+  ]
+}
+```
 
 ## Usage
 
@@ -37,10 +74,23 @@ import (
     "chatbot/elevenlabs"
     "net/http"
     "os"
+
+    "github.com/aws/aws-sdk-go/aws"
+    "github.com/aws/aws-sdk-go/aws/credentials"
+    "github.com/aws/aws-sdk-go/aws/session"
 )
 
 func main() {
-    client := elevenlabs.NewClient("your-api-key", http.Client{})
+    sess, _ := session.NewSession(&aws.Config{
+        Region: aws.String("us-east-2"),
+        Credentials: credentials.NewStaticCredentials(
+            "your-access-key-id",
+            "your-secret-access-key",
+            "",
+        ),
+    })
+    
+    client := elevenlabs.NewClient("your-api-key", http.Client{}, sess, "your-bucket", "us-east-2")
     
     // Open audio file
     file, err := os.Open("audio.mp3")
@@ -67,26 +117,34 @@ package main
 import (
     "chatbot/elevenlabs"
     "net/http"
-    "os"
+
+    "github.com/aws/aws-sdk-go/aws"
+    "github.com/aws/aws-sdk-go/aws/credentials"
+    "github.com/aws/aws-sdk-go/aws/session"
 )
 
 func main() {
-    client := elevenlabs.NewClient("your-api-key", http.Client{})
+    sess, _ := session.NewSession(&aws.Config{
+        Region: aws.String("us-east-2"),
+        Credentials: credentials.NewStaticCredentials(
+            "your-access-key-id",
+            "your-secret-access-key",
+            "",
+        ),
+    })
+    
+    client := elevenlabs.NewClient("your-api-key", http.Client{}, sess, "your-bucket", "us-east-2")
     
     voiceID := "JBFqnCBsd6RMkjVDRZzb"
     text := "The first move is what sets everything in motion."
     modelID := "eleven_multilingual_v2"
     
-    audioData, err := client.ConvertTextToSpeech(voiceID, text, modelID)
+    audioURL, err := client.ConvertTextToSpeech(voiceID, text, modelID)
     if err != nil {
         log.Fatal(err)
     }
     
-    // Save to file
-    err = os.WriteFile("output.mp3", audioData, 0644)
-    if err != nil {
-        log.Fatal(err)
-    }
+    fmt.Println("Audio available at:", audioURL)
 }
 ```
 
@@ -123,13 +181,16 @@ if err != nil {
 
 ### Client
 
-#### `NewClient(apiKey string, httpClient http.Client) Client`
+#### `NewClient(apiKey string, httpClient http.Client, s3Session *session.Session, s3Bucket string, s3Region string) Client`
 
-Creates a new ElevenLabs client.
+Creates a new ElevenLabs client with S3 integration.
 
 **Parameters:**
 - `apiKey`: Your ElevenLabs API key
 - `httpClient`: HTTP client for making requests
+- `s3Session`: AWS session for S3 operations
+- `s3Bucket`: S3 bucket name for audio storage
+- `s3Region`: AWS region for the S3 bucket
 
 #### `TranscribeAudioFile(file io.Reader, fileName string) (string, error)`
 
@@ -143,9 +204,9 @@ Creates a new ElevenLabs client.
 - `string`: The transcribed text
 - `error`: Any error that occurred
 
-#### `ConvertTextToSpeech(voiceID string, text string, modelID string) ([]byte, error)`
+#### `ConvertTextToSpeech(voiceID string, text string, modelID string) (string, error)`
 
-Converts text to speech and returns audio data.
+Converts text to speech, uploads to S3, and returns the public URL.
 
 **Parameters:**
 - `voiceID`: ID of the voice to be used
@@ -153,7 +214,7 @@ Converts text to speech and returns audio data.
 - `modelID`: Model ID (e.g., "eleven_multilingual_v2")
 
 **Returns:**
-- `[]byte`: The generated audio data
+- `string`: The public URL of the uploaded audio file
 - `error`: Any error that occurred
 
 ### Types
@@ -242,37 +303,41 @@ for _, filename := range files {
 ### Basic Usage
 
 ```go
-client := elevenlabs.NewClient(apiKey, httpClient)
-audioData, err := client.ConvertTextToSpeech("voice-id", "Hello world", "eleven_multilingual_v2")
+sess, _ := session.NewSession(&aws.Config{
+    Region: aws.String("us-east-2"),
+    Credentials: credentials.NewStaticCredentials(
+        "your-access-key-id",
+        "your-secret-access-key",
+        "",
+    ),
+})
+client := elevenlabs.NewClient(apiKey, httpClient, sess, "my-bucket", "us-east-2")
+audioURL, err := client.ConvertTextToSpeech("voice-id", "Hello world", "eleven_multilingual_v2")
 ```
 
-### Save to File
+### Share Audio URL
 
 ```go
-audioData, err := client.ConvertTextToSpeech(voiceID, text, modelID)
+audioURL, err := client.ConvertTextToSpeech(voiceID, text, modelID)
 if err != nil {
     log.Fatal(err)
 }
 
-err = os.WriteFile("speech.mp3", audioData, 0644)
-if err != nil {
-    log.Fatal(err)
-}
+fmt.Printf("Share this audio: %s\n", audioURL)
 ```
 
-### Stream to HTTP Response
+### Use with WhatsApp API
 
 ```go
 func handleTextToSpeech(w http.ResponseWriter, r *http.Request) {
-    audioData, err := client.ConvertTextToSpeech(voiceID, text, modelID)
+    audioURL, err := client.ConvertTextToSpeech(voiceID, text, modelID)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
     
-    w.Header().Set("Content-Type", "audio/mpeg")
-    w.Header().Set("Content-Length", strconv.Itoa(len(audioData)))
-    w.Write(audioData)
+    // Send audio URL via WhatsApp or other messaging service
+    // The URL points to the public S3 file
 }
 ```
 
@@ -280,9 +345,24 @@ func handleTextToSpeech(w http.ResponseWriter, r *http.Request) {
 
 ```go
 // In your main.go
+sess, err := session.NewSession(&aws.Config{
+    Region: aws.String(appConfig.S3Region),
+    Credentials: credentials.NewStaticCredentials(
+        appConfig.AWSAccessKeyID,
+        appConfig.AWSSecretAccessKey,
+        "",
+    ),
+})
+if err != nil {
+    log.Fatal().Err(err).Msg("Failed to create AWS session")
+}
+
 ElevenLabsClient = elevenlabs.NewClient(
     appConfig.ElevenLabsAPIKey,
     httpClient,
+    sess,
+    appConfig.S3Bucket,
+    appConfig.S3Region,
 )
 
 // Usage in message processing
@@ -304,14 +384,27 @@ func processAudioMessage(audioURL string) (string, error) {
 ### Common Issues
 
 1. **Missing API Key**: Ensure `ELEVENLABS_API_KEY` is set
-2. **File Size**: Maximum 1GB file size
-3. **Format**: Ensure audio format is supported
-4. **Network**: Check connectivity
+2. **Missing S3 Config**: Ensure `AWS_S3_BUCKET` and `AWS_REGION` are set
+3. **Missing AWS Credentials**: Ensure `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set
+4. **AWS Permissions**: Ensure your AWS user/role has S3 upload permissions
+5. **S3 Bucket Policy**: Ensure your bucket allows public read access
+6. **File Size**: Maximum 1GB file size
+7. **Format**: Ensure audio format is supported
+8. **Network**: Check connectivity
+
+### AWS Credential Issues
+
+If you get AWS credential errors:
+- Verify your Access Key ID and Secret Access Key are correct
+- Ensure the IAM user has the necessary S3 permissions
+- Check that the bucket name and region are correct
+- Test AWS credentials with AWS CLI: `aws s3 ls s3://your-bucket-name`
 
 ### Debug Logging
 
-The package logs transcription results automatically:
+The package logs transcription and upload results automatically:
 
 ```
 INFO: Audio transcription completed transcribed_text="Hello world" detected_language="en" confidence=0.98
+INFO: Audio uploaded to S3 successfully voice_id="voice-123" s3_url="https://bucket.s3.region.amazonaws.com/audio/voice-123_1234567890.mp3"
 ``` 

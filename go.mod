@@ -3,6 +3,7 @@ module chatbot
 go 1.24.3
 
 require (
+	github.com/aws/aws-sdk-go v1.55.7
 	github.com/gofiber/fiber/v3 v3.0.0-beta.4
 	github.com/invopop/jsonschema v0.13.0
 	github.com/joho/godotenv v1.5.1
@@ -21,6 +22,7 @@ require (
 	github.com/gofiber/schema v1.4.0 // indirect
 	github.com/gofiber/utils/v2 v2.0.0-beta.8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
