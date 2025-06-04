@@ -13,6 +13,17 @@ import (
 
 const SpeechToTextPath = "/speech-to-text"
 
+// TranscribeAudio downloads audio from the provided URL and transcribes it to text using ElevenLabs API.
+// This is a convenience method that handles both the download and transcription in a single call.
+//
+// Parameters:
+//   - url: HTTP(S) URL pointing to the audio file to be transcribed
+//
+// Returns:
+//   - string: The transcribed text content from the audio
+//   - error: Any error that occurred during download or transcription
+//
+// Supported audio formats: MP3, WAV, OGG, AAC, FLAC, M4A, WebM
 func (c *Client) TranscribeAudio(url string) (string, error) {
 	log.Info().Str("url", url).Msg("Downloading and transcribing audio from URL")
 
@@ -29,6 +40,20 @@ func (c *Client) TranscribeAudio(url string) (string, error) {
 	return c.transcribeAudioFile(resp.Body, "audio.mp3")
 }
 
+// TranscribeAudioFile transcribes audio data from an io.Reader to text using ElevenLabs API.
+// This method accepts any source that implements io.Reader, making it flexible for various
+// audio input sources including files, HTTP responses, or byte buffers.
+//
+// Parameters:
+//   - file: io.Reader containing the audio data to be transcribed
+//   - fileName: Name of the file, used for format detection and logging
+//
+// Returns:
+//   - string: The transcribed text content from the audio
+//   - error: Any error that occurred during transcription
+//
+// The transcription uses the configured language code and ElevenLabs' default speech-to-text model.
+// Supported audio formats: MP3, WAV, OGG, AAC, FLAC, M4A, WebM
 func (c *Client) TranscribeAudioFile(file io.Reader, fileName string) (string, error) {
 	return c.transcribeAudioFile(file, fileName)
 }

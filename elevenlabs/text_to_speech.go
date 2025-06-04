@@ -15,6 +15,21 @@ import (
 
 const TextToSpeechPath = "/text-to-speech"
 
+// ConvertTextToSpeech converts text to speech using ElevenLabs API and uploads the audio to S3.
+// The function generates audio from the provided text using the specified voice and model,
+// then automatically uploads the audio file to the configured S3 bucket with public read access.
+//
+// Parameters:
+//   - voiceID: ElevenLabs voice ID to use for speech generation
+//   - text: The text content to convert to speech
+//   - modelID: ElevenLabs model ID (e.g., "eleven_multilingual_v2")
+//
+// Returns:
+//   - string: Public S3 URL where the generated audio file can be accessed
+//   - error: Any error that occurred during text-to-speech conversion or S3 upload
+//
+// The audio file is stored in S3 with the path format: "audio/{voiceID}_{timestamp}.mp3"
+// and is publicly accessible via the returned URL.
 func (c *Client) ConvertTextToSpeech(voiceID string, text string, modelID string) (string, error) {
 	log.Info().
 		Str("voice_id", voiceID).
