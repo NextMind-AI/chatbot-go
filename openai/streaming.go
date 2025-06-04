@@ -19,8 +19,6 @@ type streamingConfig struct {
 	vonageClient     *vonage.Client
 	redisClient      *redis.Client
 	elevenLabsClient *elevenlabs.Client
-	voiceID          string
-	modelID          string
 	toNumber         string
 	useTools         bool
 }
@@ -35,8 +33,6 @@ func (c *Client) ProcessChatStreaming(
 	vonageClient *vonage.Client,
 	redisClient *redis.Client,
 	elevenLabsClient *elevenlabs.Client,
-	voiceID string,
-	modelID string,
 	toNumber string,
 ) error {
 	config := streamingConfig{
@@ -45,8 +41,6 @@ func (c *Client) ProcessChatStreaming(
 		vonageClient:     vonageClient,
 		redisClient:      redisClient,
 		elevenLabsClient: elevenLabsClient,
-		voiceID:          voiceID,
-		modelID:          modelID,
 		toNumber:         toNumber,
 		useTools:         false,
 	}
@@ -62,8 +56,6 @@ func (c *Client) ProcessChatStreamingWithTools(
 	vonageClient *vonage.Client,
 	redisClient *redis.Client,
 	elevenLabsClient *elevenlabs.Client,
-	voiceID string,
-	modelID string,
 	toNumber string,
 ) error {
 	config := streamingConfig{
@@ -72,8 +64,6 @@ func (c *Client) ProcessChatStreamingWithTools(
 		vonageClient:     vonageClient,
 		redisClient:      redisClient,
 		elevenLabsClient: elevenLabsClient,
-		voiceID:          voiceID,
-		modelID:          modelID,
 		toNumber:         toNumber,
 		useTools:         true,
 	}
@@ -163,10 +153,8 @@ func (c *Client) streamResponse(
 						Msg("Processing streamed message")
 
 					if msg.Type == "audio" {
-						audioURL, err := config.elevenLabsClient.ConvertTextToSpeech(
-							config.voiceID,
+						audioURL, err := config.elevenLabsClient.ConvertTextToSpeechDefault(
 							msg.Content,
-							config.modelID,
 						)
 						if err != nil {
 							log.Error().

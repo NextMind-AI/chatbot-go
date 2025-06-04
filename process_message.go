@@ -98,8 +98,6 @@ func processMessage(message InboundMessage) {
 		&VonageClient,
 		&RedisClient,
 		&ElevenLabsClient,
-		AppConfig.ElevenLabsVoiceID,
-		AppConfig.ElevenLabsModelID,
 		userID,
 	)
 	if err != nil {

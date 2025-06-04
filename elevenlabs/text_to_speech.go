@@ -16,6 +16,19 @@ import (
 
 const TextToSpeechPath = "/text-to-speech"
 
+// ConvertTextToSpeechDefault converts text to speech using the default hardcoded voice and model,
+// then uploads the audio to S3. This is a convenience method that uses predefined constants.
+//
+// Parameters:
+//   - text: The text content to convert to speech
+//
+// Returns:
+//   - string: Public S3 URL where the generated audio file can be accessed
+//   - error: Any error that occurred during text-to-speech conversion or S3 upload
+func (c *Client) ConvertTextToSpeechDefault(text string) (string, error) {
+	return c.ConvertTextToSpeech(VoiceID, text, ModelID)
+}
+
 // ConvertTextToSpeech converts text to speech using ElevenLabs API and uploads the audio to S3.
 // The function generates audio from the provided text using the specified voice and model,
 // then automatically uploads the audio file to the configured S3 bucket with public read access.

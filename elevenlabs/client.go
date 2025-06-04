@@ -33,6 +33,8 @@ import (
 const (
 	BaseURL      = "https://api.elevenlabs.io/v1"
 	DefaultModel = "scribe_v1"
+	VoiceID      = "JNI7HKGyqNaHqfihNoCi"
+	ModelID      = "eleven_multilingual_v2"
 )
 
 type Client struct {
