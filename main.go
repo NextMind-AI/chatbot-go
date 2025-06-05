@@ -4,7 +4,9 @@ import (
 	"chatbot/aws"
 	"chatbot/config"
 	"chatbot/elevenlabs"
+	"chatbot/execution"
 	"chatbot/openai"
+	"chatbot/processor"
 	"chatbot/redis"
 	"chatbot/vonage"
 	"net/http"
@@ -17,6 +19,8 @@ var VonageClient vonage.Client
 var OpenAIClient openai.Client
 var RedisClient redis.Client
 var ElevenLabsClient elevenlabs.Client
+var MessageProcessor *processor.MessageProcessor
+var executionManager *execution.Manager
 
 func main() {
 	appConfig := config.Load()
@@ -48,6 +52,16 @@ func main() {
 		appConfig.ElevenLabsAPIKey,
 		httpClient,
 		awsClient,
+	)
+
+	executionManager = execution.NewManager()
+
+	MessageProcessor = processor.NewMessageProcessor(
+		VonageClient,
+		RedisClient,
+		OpenAIClient,
+		ElevenLabsClient,
+		executionManager,
 	)
 
 	app := fiber.New()

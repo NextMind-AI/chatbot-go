@@ -1,14 +1,11 @@
 package main
 
 import (
-	"chatbot/execution"
 	"chatbot/processor"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog/log"
 )
-
-var executionManager = execution.NewManager()
 
 func inboundMessageHandler(c fiber.Ctx) error {
 	log.Info().Msg("Received inbound message request")
@@ -27,14 +24,7 @@ func inboundMessageHandler(c fiber.Ctx) error {
 		Bool("has_audio", message.Audio != nil).
 		Msg("Processing inbound message")
 
-	go processor.ProcessMessage(
-		message,
-		&VonageClient,
-		&RedisClient,
-		&OpenAIClient,
-		&ElevenLabsClient,
-		executionManager,
-	)
+	go MessageProcessor.ProcessMessage(message)
 
 	return c.SendStatus(fiber.StatusOK)
 }
