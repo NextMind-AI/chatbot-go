@@ -29,10 +29,10 @@ func inboundMessageHandler(c fiber.Ctx) error {
 
 	go processor.ProcessMessage(
 		message,
-		VonageClient,
-		RedisClient,
-		OpenAIClient,
-		ElevenLabsClient,
+		&VonageClient,
+		&RedisClient,
+		&OpenAIClient,
+		&ElevenLabsClient,
 		executionManager,
 	)
 

@@ -101,7 +101,7 @@ func (mp *MessageProcessor) cancelled(ctx context.Context, userID, stage string)
 	return false
 }
 
-func ProcessMessage(message InboundMessage, vonageClient vonage.Client, redisClient redis.Client, openaiClient openai.Client, elevenLabsClient elevenlabs.Client, execManager *execution.Manager) {
-	processor := NewMessageProcessor(vonageClient, redisClient, openaiClient, elevenLabsClient, execManager)
+func ProcessMessage(message InboundMessage, vonageClient *vonage.Client, redisClient *redis.Client, openaiClient *openai.Client, elevenLabsClient *elevenlabs.Client, execManager *execution.Manager) {
+	processor := NewMessageProcessor(*vonageClient, *redisClient, *openaiClient, *elevenLabsClient, execManager)
 	processor.ProcessMessage(message)
 }
