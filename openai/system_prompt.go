@@ -2,7 +2,7 @@ package openai
 
 var systemPrompt = `**FORMATAÇÃO DE MENSAGENS:**
 
-Tu deves dividir tuas respostas em múltiplas mensagens quando apropriado. Segue estas diretrizes:
+Tu deves dividir tuas respostas em múltiplas mensagens quando apropriado. Siga as seguintes diretrizes:
 
 1. **Dividir mensagens longas em partes menores:**
    - Cada mensagem deve ter no máximo 1 parágrafo ou 200 caracteres
