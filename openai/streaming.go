@@ -120,6 +120,11 @@ func (c *Client) streamResponse(
 ) error {
 	schemaParam := createSchemaParam()
 
+	log.Info().
+		Str("user_id", config.userID).
+		Int("messages_count", len(messages)).
+		Msg("Starting stream response")
+
 	stream := c.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
 		Messages: messages,
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
@@ -132,6 +137,7 @@ func (c *Client) streamResponse(
 	var fullContent strings.Builder
 	sentMessages := make(map[int]bool)
 	hasProcessedAnyMessage := false
+	chunkCount := 0
 
 	for stream.Next() {
 		// Check if context was cancelled
@@ -143,9 +149,18 @@ func (c *Client) streamResponse(
 		}
 
 		evt := stream.Current()
+		chunkCount++
+
 		if len(evt.Choices) > 0 {
 			content := evt.Choices[0].Delta.Content
 			fullContent.WriteString(content)
+
+			if chunkCount == 1 {
+				log.Info().
+					Str("user_id", config.userID).
+					Str("first_chunk", content).
+					Msg("Received first chunk from stream")
+			}
 
 			newMessages := parser.AddChunk(content)
 
@@ -218,6 +233,13 @@ func (c *Client) streamResponse(
 		}
 	}
 
+	log.Info().
+		Str("user_id", config.userID).
+		Int("total_chunks", chunkCount).
+		Bool("processed_any_message", hasProcessedAnyMessage).
+		Int("content_length", fullContent.Len()).
+		Msg("Stream completed")
+
 	streamErr := stream.Err()
 	if streamErr != nil {
 		log.Error().
@@ -232,6 +254,29 @@ func (c *Client) streamResponse(
 			return streamErr
 		}
 		// If we processed some messages but got an error, log it but don't fail completely
+	}
+
+	// If no messages were processed but also no error, send a fallback message
+	if !hasProcessedAnyMessage && streamErr == nil {
+		log.Warn().
+			Str("user_id", config.userID).
+			Str("full_content", fullContent.String()).
+			Msg("No messages processed from stream - sending fallback")
+
+		fallbackMsg := "I apologize, but I couldn't generate a proper response. Please try again."
+		if _, err := config.vonageClient.SendWhatsAppTextMessage(config.toNumber, fallbackMsg); err != nil {
+			log.Error().
+				Err(err).
+				Str("user_id", config.userID).
+				Msg("Failed to send fallback message")
+		}
+
+		// Still try to save the response if we got any content
+		if fullContent.Len() > 0 {
+			return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
+		}
+
+		return nil
 	}
 
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)

@@ -3,6 +3,8 @@ package openai
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 // StreamingJSONParser handles incremental parsing of JSON responses from OpenAI's streaming API.
@@ -43,6 +45,26 @@ func (p *StreamingJSONParser) parseNewMessages() []Message {
 
 	searchContent := content[p.lastParsedPos:]
 
+	// Log buffer state for debugging
+	if len(searchContent) > 0 && len(parsedMessages) == 0 {
+		// Check if we have potential message patterns
+		hasContentPattern := strings.Contains(searchContent, `"content":`)
+		hasTypePattern := strings.Contains(searchContent, `"type":`)
+
+		if !hasContentPattern && !hasTypePattern && len(searchContent) > 100 {
+			// Log only if we have significant content but no patterns
+			sample := searchContent
+			if len(sample) > 200 {
+				sample = sample[:200] + "..."
+			}
+			log.Debug().
+				Int("buffer_length", len(searchContent)).
+				Str("buffer_sample", sample).
+				Bool("found_messages", p.foundMessages).
+				Msg("Parser buffer has content but no message patterns found")
+		}
+	}
+
 	for {
 		startIdx := strings.Index(searchContent, `{"content":`)
 		if startIdx == -1 {
@@ -65,6 +87,11 @@ func (p *StreamingJSONParser) parseNewMessages() []Message {
 		if err := json.Unmarshal([]byte(messageJSON), &msg); err == nil {
 			p.MsgCount++
 			parsedMessages = append(parsedMessages, msg)
+		} else {
+			log.Warn().
+				Err(err).
+				Str("json", messageJSON).
+				Msg("Failed to parse message JSON")
 		}
 
 		p.lastParsedPos = endIdx + 1
