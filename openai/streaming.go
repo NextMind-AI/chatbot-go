@@ -256,24 +256,96 @@ func (c *Client) streamResponse(
 		// If we processed some messages but got an error, log it but don't fail completely
 	}
 
-	// If no messages were processed but also no error, send a fallback message
+	// If no messages were processed but also no error, try to parse the full content directly
 	if !hasProcessedAnyMessage && streamErr == nil {
 		log.Warn().
 			Str("user_id", config.userID).
 			Str("full_content", fullContent.String()).
-			Msg("No messages processed from stream - sending fallback")
+			Msg("No messages processed from stream - attempting direct parse")
 
+		// Try to parse the complete JSON as a fallback
+		fullContentStr := fullContent.String()
+		if fullContentStr != "" {
+			// Remove outer quotes if they exist (in case the whole response is quoted)
+			cleanedContent := strings.TrimSpace(fullContentStr)
+			if strings.HasPrefix(cleanedContent, `"`) && strings.HasSuffix(cleanedContent, `"`) {
+				// Remove the outer quotes and unescape
+				var unquoted string
+				if err := json.Unmarshal([]byte(cleanedContent), &unquoted); err == nil {
+					cleanedContent = unquoted
+				}
+			}
+
+			log.Info().
+				Str("user_id", config.userID).
+				Str("original_content", fullContentStr).
+				Str("cleaned_content", cleanedContent).
+				Msg("Attempting to parse full content in fallback")
+
+			var messageList MessageList
+			if err := json.Unmarshal([]byte(cleanedContent), &messageList); err == nil {
+				log.Info().
+					Str("user_id", config.userID).
+					Int("messages_count", len(messageList.Messages)).
+					Msg("Successfully parsed full content directly - sending messages")
+
+				// Send all messages from the parsed JSON
+				for _, msg := range messageList.Messages {
+					if msg.Type == "audio" {
+						audioURL, err := config.elevenLabsClient.ConvertTextToSpeechDefault(msg.Content)
+						if err != nil {
+							log.Error().
+								Err(err).
+								Str("user_id", config.userID).
+								Str("content", msg.Content).
+								Msg("Error converting text to speech in fallback")
+							continue
+						}
+
+						if _, err := config.vonageClient.SendWhatsAppAudioMessage(config.toNumber, audioURL); err != nil {
+							log.Error().
+								Err(err).
+								Str("user_id", config.userID).
+								Msg("Error sending WhatsApp audio message in fallback")
+						} else {
+							log.Info().
+								Str("user_id", config.userID).
+								Msg("Sent audio message via fallback parsing")
+						}
+					} else {
+						if _, err := config.vonageClient.SendWhatsAppTextMessage(config.toNumber, msg.Content); err != nil {
+							log.Error().
+								Err(err).
+								Str("user_id", config.userID).
+								Msg("Error sending WhatsApp text message in fallback")
+						} else {
+							log.Info().
+								Str("user_id", config.userID).
+								Str("content", msg.Content).
+								Msg("Sent text message via fallback parsing")
+						}
+					}
+				}
+
+				// Save the response
+				return c.finalizeStreamingResponse(config.userID, cleanedContent, config.redisClient)
+			} else {
+				log.Error().
+					Err(err).
+					Str("user_id", config.userID).
+					Str("original_content", fullContentStr).
+					Str("cleaned_content", cleanedContent).
+					Msg("Failed to parse full content as JSON")
+			}
+		}
+
+		// If everything fails, send the original fallback message
 		fallbackMsg := "I apologize, but I couldn't generate a proper response. Please try again."
 		if _, err := config.vonageClient.SendWhatsAppTextMessage(config.toNumber, fallbackMsg); err != nil {
 			log.Error().
 				Err(err).
 				Str("user_id", config.userID).
 				Msg("Failed to send fallback message")
-		}
-
-		// Still try to save the response if we got any content
-		if fullContent.Len() > 0 {
-			return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
 		}
 
 		return nil
