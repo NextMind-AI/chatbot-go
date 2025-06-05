@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"chatbot/processor"
@@ -7,7 +7,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func inboundMessageHandler(c fiber.Ctx) error {
+func (s *Server) inboundMessageHandler(c fiber.Ctx) error {
 	log.Info().Msg("Received inbound message request")
 
 	var message processor.InboundMessage
@@ -24,7 +24,7 @@ func inboundMessageHandler(c fiber.Ctx) error {
 		Bool("has_audio", message.Audio != nil).
 		Msg("Processing inbound message")
 
-	go MessageProcessor.ProcessMessage(message)
+	go s.messageProcessor.ProcessMessage(message)
 
 	return c.SendStatus(fiber.StatusOK)
 }

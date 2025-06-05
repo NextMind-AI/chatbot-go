@@ -8,19 +8,10 @@ import (
 	"chatbot/openai"
 	"chatbot/processor"
 	"chatbot/redis"
+	"chatbot/server"
 	"chatbot/vonage"
 	"net/http"
-
-	"github.com/gofiber/fiber/v3"
-	"github.com/rs/zerolog/log"
 )
-
-var VonageClient vonage.Client
-var OpenAIClient openai.Client
-var RedisClient redis.Client
-var ElevenLabsClient elevenlabs.Client
-var MessageProcessor *processor.MessageProcessor
-var executionManager *execution.Manager
 
 func main() {
 	appConfig := config.Load()
@@ -29,7 +20,7 @@ func main() {
 
 	awsClient := aws.NewClient(appConfig.S3Region, appConfig.S3Bucket)
 
-	VonageClient = vonage.NewClient(
+	vonageClient := vonage.NewClient(
 		appConfig.VonageJWT,
 		appConfig.GeospecificMessagesAPIURL,
 		appConfig.MessagesAPIURL,
@@ -37,43 +28,34 @@ func main() {
 		httpClient,
 	)
 
-	OpenAIClient = openai.NewClient(
+	openAIClient := openai.NewClient(
 		appConfig.OpenAIKey,
 		httpClient,
 	)
 
-	RedisClient = redis.NewClient(
+	redisClient := redis.NewClient(
 		appConfig.RedisAddr,
 		appConfig.RedisPassword,
 		appConfig.RedisDB,
 	)
 
-	ElevenLabsClient = elevenlabs.NewClient(
+	elevenLabsClient := elevenlabs.NewClient(
 		appConfig.ElevenLabsAPIKey,
 		httpClient,
 		awsClient,
 	)
 
-	executionManager = execution.NewManager()
+	executionManager := execution.NewManager()
 
-	MessageProcessor = processor.NewMessageProcessor(
-		VonageClient,
-		RedisClient,
-		OpenAIClient,
-		ElevenLabsClient,
+	messageProcessor := processor.NewMessageProcessor(
+		vonageClient,
+		redisClient,
+		openAIClient,
+		elevenLabsClient,
 		executionManager,
 	)
 
-	app := fiber.New()
+	srv := server.New(messageProcessor)
 
-	app.Post("/webhooks/inbound-message", inboundMessageHandler)
-
-	log.Info().Str("port", appConfig.Port).Msg("Starting chatbot server")
-
-	err := app.Listen(":"+appConfig.Port, fiber.ListenConfig{
-		DisableStartupMessage: true,
-	})
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to start server")
-	}
+	srv.Start(appConfig.Port)
 }
