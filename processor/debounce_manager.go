@@ -12,8 +12,10 @@ import (
 // For each user, it waits 15 seconds before processing their latest message.
 // If a new message arrives during the wait period, the timer resets.
 type DebounceManager struct {
-	userTimers map[string]*userTimer
-	mutex      sync.RWMutex
+	userTimers     map[string]*userTimer
+	mutex          sync.RWMutex
+	processedCount int64
+	cancelledCount int64
 }
 
 // userTimer holds the timer and cancellation function for a specific user
@@ -25,7 +27,9 @@ type userTimer struct {
 // NewDebounceManager creates a new instance of DebounceManager
 func NewDebounceManager() *DebounceManager {
 	return &DebounceManager{
-		userTimers: make(map[string]*userTimer),
+		userTimers:     make(map[string]*userTimer),
+		processedCount: 0,
+		cancelledCount: 0,
 	}
 }
 
@@ -43,6 +47,7 @@ func (dm *DebounceManager) ProcessMessage(userID string, processor func()) {
 
 		existingTimer.timer.Stop()
 		existingTimer.cancel()
+		dm.cancelledCount++
 	}
 
 	// Create a new context for cancellation
@@ -50,25 +55,43 @@ func (dm *DebounceManager) ProcessMessage(userID string, processor func()) {
 
 	// Create a new timer for 15 seconds
 	timer := time.AfterFunc(15*time.Second, func() {
-		select {
-		case <-ctx.Done():
-			// Timer was cancelled, don't process
+		// Check if the context was cancelled
+		if ctx.Err() != nil {
 			log.Info().
 				Str("user_id", userID).
 				Msg("Debounce timer cancelled")
+			dm.mutex.Lock()
+			dm.cancelledCount++
+			dm.mutex.Unlock()
 			return
-		default:
-			// Timer expired naturally, process the message
-			log.Info().
-				Str("user_id", userID).
-				Msg("Debounce timer expired - processing message")
-
-			// Clean up the timer from the map
-			dm.cleanupTimer(userID)
-
-			// Execute the processor function
-			processor()
 		}
+
+		// Timer expired naturally, process the message
+		log.Info().
+			Str("user_id", userID).
+			Msg("Debounce timer expired - processing message")
+
+		// Clean up the timer from the map BEFORE executing processor
+		// to avoid race conditions
+		dm.cleanupTimer(userID)
+
+		// Increment processed count
+		dm.mutex.Lock()
+		dm.processedCount++
+		dm.mutex.Unlock()
+
+		// Execute the processor function
+		// Wrap in a defer/recover to ensure we handle any panics
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().
+					Str("user_id", userID).
+					Interface("panic", r).
+					Msg("Panic occurred during message processing")
+			}
+		}()
+
+		processor()
 	})
 
 	// Store the timer and cancel function
@@ -110,4 +133,16 @@ func (dm *DebounceManager) GetActiveTimersCount() int {
 	dm.mutex.RLock()
 	defer dm.mutex.RUnlock()
 	return len(dm.userTimers)
+}
+
+// GetStatistics returns detailed statistics about the debounce manager
+func (dm *DebounceManager) GetStatistics() map[string]interface{} {
+	dm.mutex.RLock()
+	defer dm.mutex.RUnlock()
+
+	return map[string]interface{}{
+		"active_timers":   len(dm.userTimers),
+		"processed_count": dm.processedCount,
+		"cancelled_count": dm.cancelledCount,
+	}
 }

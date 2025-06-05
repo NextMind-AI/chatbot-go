@@ -131,8 +131,17 @@ func (c *Client) streamResponse(
 	parser := NewStreamingJSONParser()
 	var fullContent strings.Builder
 	sentMessages := make(map[int]bool)
+	hasProcessedAnyMessage := false
 
 	for stream.Next() {
+		// Check if context was cancelled
+		if ctx.Err() != nil {
+			log.Info().
+				Str("user_id", config.userID).
+				Msg("Streaming cancelled due to context cancellation")
+			return ctx.Err()
+		}
+
 		evt := stream.Current()
 		if len(evt.Choices) > 0 {
 			content := evt.Choices[0].Delta.Content
@@ -144,6 +153,7 @@ func (c *Client) streamResponse(
 				messageIndex := parser.MsgCount - len(newMessages) + i
 				if !sentMessages[messageIndex] {
 					sentMessages[messageIndex] = true
+					hasProcessedAnyMessage = true
 
 					log.Info().
 						Str("user_id", config.userID).
@@ -208,8 +218,20 @@ func (c *Client) streamResponse(
 		}
 	}
 
-	if err := stream.Err(); err != nil {
-		return err
+	streamErr := stream.Err()
+	if streamErr != nil {
+		log.Error().
+			Err(streamErr).
+			Str("user_id", config.userID).
+			Bool("processed_any_message", hasProcessedAnyMessage).
+			Msg("Stream error occurred")
+
+		// If we haven't processed any messages and there's a stream error,
+		// this indicates a complete failure
+		if !hasProcessedAnyMessage {
+			return streamErr
+		}
+		// If we processed some messages but got an error, log it but don't fail completely
 	}
 
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)

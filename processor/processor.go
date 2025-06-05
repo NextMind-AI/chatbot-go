@@ -7,6 +7,7 @@ import (
 	"chatbot/redis"
 	"chatbot/vonage"
 	"context"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -76,6 +77,21 @@ func (mp *MessageProcessor) processMessageWithAI(userID string) {
 	ctx := mp.executionManager.Start(userID)
 	defer mp.executionManager.Cleanup(userID, ctx)
 
+	// Add a timeout to prevent indefinite hanging
+	ctx, timeoutCancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer timeoutCancel()
+
+	// Add a recovery mechanism to ensure we always respond to the user
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().
+				Str("user_id", userID).
+				Interface("panic", r).
+				Msg("Panic occurred during AI processing - sending fallback response")
+			mp.sendFallbackResponse(userID)
+		}
+	}()
+
 	// Get the latest chat history
 	chatHistory, err := mp.getChatHistory(userID)
 	if err != nil {
@@ -94,7 +110,10 @@ func (mp *MessageProcessor) processMessageWithAI(userID string) {
 		log.Error().
 			Err(err).
 			Str("user_id", userID).
-			Msg("Error processing with AI")
+			Msg("Error processing with AI - sending fallback response")
+
+		// Instead of just returning, send a fallback response to the user
+		mp.sendFallbackResponse(userID)
 		return
 	}
 
@@ -105,12 +124,79 @@ func (mp *MessageProcessor) processMessageWithAI(userID string) {
 	log.Info().Str("user_id", userID).Msg("Completed debounced message processing")
 }
 
-func (mp *MessageProcessor) cancelled(ctx context.Context, userID, stage string) bool {
-	if ctx.Err() != nil {
+// sendFallbackResponse sends a fallback message to the user when AI processing fails
+func (mp *MessageProcessor) sendFallbackResponse(userID string) {
+	fallbackMessage := "I'm sorry, I'm experiencing some technical difficulties. Please try sending your message again."
+
+	// Try to send the fallback message
+	if _, err := mp.vonageClient.SendWhatsAppTextMessage(userID, fallbackMessage); err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", userID).
+			Msg("Failed to send fallback response")
+	} else {
 		log.Info().
 			Str("user_id", userID).
-			Msg("Message processing cancelled " + stage)
+			Msg("Sent fallback response to user")
+
+		// Store the fallback message in chat history
+		if err := mp.redisClient.AddBotMessage(userID, fallbackMessage); err != nil {
+			log.Error().
+				Err(err).
+				Str("user_id", userID).
+				Msg("Error storing fallback message in Redis")
+		}
+	}
+}
+
+// GetProcessorStatus returns the current status of the processor for monitoring
+func (mp *MessageProcessor) GetProcessorStatus() map[string]interface{} {
+	debounceStats := mp.debounceManager.GetStatistics()
+	return map[string]interface{}{
+		"debounce_stats": debounceStats,
+		"timestamp":      time.Now().Unix(),
+	}
+}
+
+func (mp *MessageProcessor) cancelled(ctx context.Context, userID, stage string) bool {
+	if ctx.Err() != nil {
+		if ctx.Err() == context.Canceled {
+			log.Info().
+				Str("user_id", userID).
+				Str("stage", stage).
+				Msg("Message processing cancelled due to context cancellation")
+		} else if ctx.Err() == context.DeadlineExceeded {
+			log.Warn().
+				Str("user_id", userID).
+				Str("stage", stage).
+				Msg("Message processing cancelled due to timeout")
+			// Send a timeout message to the user
+			mp.sendTimeoutResponse(userID)
+		}
 		return true
 	}
 	return false
+}
+
+// sendTimeoutResponse sends a timeout message to the user
+func (mp *MessageProcessor) sendTimeoutResponse(userID string) {
+	timeoutMessage := "I'm taking longer than expected to process your message. Please try again in a moment."
+
+	if _, err := mp.vonageClient.SendWhatsAppTextMessage(userID, timeoutMessage); err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", userID).
+			Msg("Failed to send timeout response")
+	} else {
+		log.Info().
+			Str("user_id", userID).
+			Msg("Sent timeout response to user")
+
+		if err := mp.redisClient.AddBotMessage(userID, timeoutMessage); err != nil {
+			log.Error().
+				Err(err).
+				Str("user_id", userID).
+				Msg("Error storing timeout message in Redis")
+		}
+	}
 }
