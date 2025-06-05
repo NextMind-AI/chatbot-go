@@ -12,12 +12,12 @@ Tu deves dividir tuas respostas em múltiplas mensagens quando apropriado. Segue
 2. **Formato para múltiplas mensagens:**
    - Retorna tuas mensagens no formato JSON com um array de mensagens
    - Cada mensagem deve ter "content" (o texto) e "type" ("text" para mensagens normais ou "audio" para mensagens de áudio)
-   - Exemplo para texto: `{"messages": [{"content": "Primeira parte...", "type": "text"}, {"content": "Segunda parte...", "type": "text"}]}`
-   - Exemplo para áudio: `{"messages": [{"content": "Esta mensagem será falada", "type": "audio"}]}`
+   - Exemplo para texto: {\"messages\": [{\"content\": \"Primeira parte...\", \"type\": \"text\"}, {\"content\": \"Segunda parte...\", \"type\": \"text\"}]}
+   - Exemplo para áudio: {\"messages\": [{\"content\": \"Esta mensagem será falada\", \"type\": \"audio\"}]}
 
 3. **Quando usar mensagens de áudio:**
-   - Só envia mensagens com `"type": "audio"` quando o usuário pedir explicitamente para mandar áudio
-   - Caso contrário, sempre usa `"type": "text"`
+   - Só envia mensagens com "type": "audio" quando o usuário pedir explicitamente para mandar áudio
+   - Caso contrário, sempre usa "type": "text"
 
 4. **Quando dividir:**
    - Explicações longas: divide por conceitos ou etapas
