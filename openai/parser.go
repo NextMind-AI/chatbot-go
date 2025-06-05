@@ -30,7 +30,18 @@ func NewStreamingJSONParser() *StreamingJSONParser {
 // to parse any complete Message objects. Returns a slice of newly parsed messages.
 func (p *StreamingJSONParser) AddChunk(chunk string) []Message {
 	p.buffer.WriteString(chunk)
-	return p.parseNewMessages()
+	messages := p.parseNewMessages()
+
+	// Add debug logging to understand what's happening
+	if len(messages) > 0 {
+		log.Debug().
+			Int("messages_found", len(messages)).
+			Str("chunk", chunk).
+			Str("buffer_content", p.buffer.String()).
+			Msg("Parser found messages in chunk")
+	}
+
+	return messages
 }
 
 // parseNewMessages scans the buffer for complete message objects and parses them.
@@ -46,32 +57,33 @@ func (p *StreamingJSONParser) parseNewMessages() []Message {
 	searchContent := content[p.lastParsedPos:]
 
 	// Log buffer state for debugging
-	if len(searchContent) > 0 && len(parsedMessages) == 0 {
+	if len(searchContent) > 0 {
 		// Check if we have potential message patterns
 		hasContentPattern := strings.Contains(searchContent, `"content":`)
 		hasTypePattern := strings.Contains(searchContent, `"type":`)
+		hasMessagesPattern := strings.Contains(searchContent, `"messages":`)
 
-		if !hasContentPattern && !hasTypePattern && len(searchContent) > 100 {
-			// Log only if we have significant content but no patterns
-			sample := searchContent
-			if len(sample) > 200 {
-				sample = sample[:200] + "..."
-			}
-			log.Debug().
-				Int("buffer_length", len(searchContent)).
-				Str("buffer_sample", sample).
-				Bool("found_messages", p.foundMessages).
-				Msg("Parser buffer has content but no message patterns found")
+		// Log detailed buffer state for debugging
+		sample := searchContent
+		if len(sample) > 300 {
+			sample = sample[:300] + "..."
 		}
+		log.Debug().
+			Int("buffer_length", len(searchContent)).
+			Int("parsed_pos", p.lastParsedPos).
+			Bool("has_content_pattern", hasContentPattern).
+			Bool("has_type_pattern", hasTypePattern).
+			Bool("has_messages_pattern", hasMessagesPattern).
+			Bool("found_messages", p.foundMessages).
+			Str("buffer_sample", sample).
+			Msg("Parser buffer state")
 	}
 
 	for {
-		startIdx := strings.Index(searchContent, `{"content":`)
+		// Look for message objects more flexibly, accounting for whitespace
+		startIdx := p.findMessageStart(searchContent)
 		if startIdx == -1 {
-			startIdx = strings.Index(searchContent, `{"type":`)
-			if startIdx == -1 {
-				break
-			}
+			break
 		}
 
 		fullStartIdx := p.lastParsedPos + startIdx
@@ -99,6 +111,61 @@ func (p *StreamingJSONParser) parseNewMessages() []Message {
 	}
 
 	return parsedMessages
+}
+
+// findMessageStart looks for the start of a message object, handling whitespace flexibly
+func (p *StreamingJSONParser) findMessageStart(searchContent string) int {
+	// First try exact patterns
+	startIdx := strings.Index(searchContent, `{"content":`)
+	if startIdx != -1 {
+		log.Debug().
+			Str("pattern", `{"content":`).
+			Int("position", startIdx).
+			Msg("Found message start with exact content pattern")
+		return startIdx
+	}
+
+	startIdx = strings.Index(searchContent, `{"type":`)
+	if startIdx != -1 {
+		log.Debug().
+			Str("pattern", `{"type":`).
+			Int("position", startIdx).
+			Msg("Found message start with exact type pattern")
+		return startIdx
+	}
+
+	// Then try patterns with whitespace after opening brace
+	startIdx = strings.Index(searchContent, `{ "content":`)
+	if startIdx != -1 {
+		log.Debug().
+			Str("pattern", `{ "content":`).
+			Int("position", startIdx).
+			Msg("Found message start with spaced content pattern")
+		return startIdx
+	}
+
+	startIdx = strings.Index(searchContent, `{ "type":`)
+	if startIdx != -1 {
+		log.Debug().
+			Str("pattern", `{ "type":`).
+			Int("position", startIdx).
+			Msg("Found message start with spaced type pattern")
+		return startIdx
+	}
+
+	// If no patterns found, log the search content for debugging
+	if len(searchContent) > 0 {
+		sample := searchContent
+		if len(sample) > 100 {
+			sample = sample[:100] + "..."
+		}
+		log.Debug().
+			Str("search_content", sample).
+			Int("content_length", len(searchContent)).
+			Msg("No message patterns found in search content")
+	}
+
+	return -1
 }
 
 // findMessageEnd locates the closing brace of a JSON object starting at startIdx.
