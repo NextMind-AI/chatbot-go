@@ -28,3 +28,8 @@ func (s *Server) inboundMessageHandler(c fiber.Ctx) error {
 
 	return c.SendStatus(fiber.StatusOK)
 }
+
+func (s *Server) healthCheckHandler(c fiber.Ctx) error {
+	status := s.messageProcessor.GetProcessorStatus()
+	return c.JSON(status)
+}

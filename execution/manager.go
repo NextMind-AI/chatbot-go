@@ -28,8 +28,10 @@ func (m *Manager) Start(userID string) context.Context {
 	defer m.mutex.Unlock()
 
 	if existingExecution, exists := m.userExecutions[userID]; exists {
-		log.Info().Str("user_id", userID).Msg("Cancelling previous execution for user")
+		log.Info().Str("user_id", userID).Msg("Previous execution exists - cancelling it")
 		existingExecution.cancel()
+		// Give a brief moment for the previous execution to clean up
+		// before starting the new one
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -38,6 +40,7 @@ func (m *Manager) Start(userID string) context.Context {
 		cancel: cancel,
 	}
 
+	log.Info().Str("user_id", userID).Msg("Started new execution context")
 	return ctx
 }
 
