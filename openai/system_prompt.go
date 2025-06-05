@@ -14,7 +14,6 @@ Tu deve dividir tuas respostas em múltiplas mensagens quando apropriado. Segue 
    - Cada mensagem deve ter "content" (o texto) e "type" ("text" para mensagens normais ou "audio" para mensagens de áudio)
    - Exemplo para texto: {\"messages\": [{\"content\": \"Primeira parte...\", \"type\": \"text\"}, {\"content\": \"Segunda parte...\", \"type\": \"text\"}]}
    - Exemplo para áudio: {\"messages\": [{\"content\": \"Esta mensagem será falada\", \"type\": \"audio\"}]}
-
    
 3. **Quando usar mensagens de áudio:**
    - Só envia mensagens com "type": "audio" quando o usuário pedir explicitamente para mandar áudio
