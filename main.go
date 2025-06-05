@@ -1,6 +1,7 @@
 package main
 
 import (
+	"chatbot/aws"
 	"chatbot/config"
 	"chatbot/elevenlabs"
 	"chatbot/openai"
@@ -8,8 +9,6 @@ import (
 	"chatbot/vonage"
 	"net/http"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog/log"
 )
@@ -24,18 +23,7 @@ func main() {
 
 	var httpClient = http.Client{}
 
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(appConfig.S3Region),
-	})
-
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create AWS session")
-	}
-
-	log.Info().
-		Str("bucket", appConfig.S3Bucket).
-		Str("region", appConfig.S3Region).
-		Msg("AWS session created successfully")
+	awsClient := aws.NewClient(appConfig.S3Region, appConfig.S3Bucket)
 
 	VonageClient = vonage.NewClient(
 		appConfig.VonageJWT,
@@ -59,9 +47,7 @@ func main() {
 	ElevenLabsClient = elevenlabs.NewClient(
 		appConfig.ElevenLabsAPIKey,
 		httpClient,
-		sess,
-		appConfig.S3Bucket,
-		appConfig.S3Region,
+		awsClient,
 	)
 
 	app := fiber.New()
@@ -70,7 +56,7 @@ func main() {
 
 	log.Info().Str("port", appConfig.Port).Msg("Starting chatbot server")
 
-	err = app.Listen(":"+appConfig.Port, fiber.ListenConfig{
+	err := app.Listen(":"+appConfig.Port, fiber.ListenConfig{
 		DisableStartupMessage: true,
 	})
 	if err != nil {

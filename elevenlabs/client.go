@@ -8,14 +8,11 @@
 //
 // Basic usage:
 //
-//	// Create AWS session
-//	sess, err := session.NewSession(&aws.Config{
-//		Region: aws.String("us-east-2"),
-//		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),
-//	})
+//	// Create AWS client
+//	awsClient, err := aws.NewClient("us-east-2", "my-bucket")
 //
 //	// Initialize client
-//	client := elevenlabs.NewClient(apiKey, http.Client{}, sess, bucket, region)
+//	client := elevenlabs.NewClient(apiKey, http.Client{}, awsClient)
 //
 //	// Transcribe audio
 //	text, err := client.TranscribeAudio("https://example.com/audio.mp3")
@@ -26,8 +23,6 @@ package elevenlabs
 
 import (
 	"net/http"
-
-	"github.com/aws/aws-sdk-go/aws/session"
 )
 
 const (
@@ -37,33 +32,31 @@ const (
 	ModelID      = "eleven_multilingual_v2"
 )
 
+type AWSClient interface {
+	UploadAudio(audioData []byte, voiceID string) (string, error)
+}
+
 type Client struct {
 	APIKey       string
 	LanguageCode string
 	HTTPClient   *http.Client
-	S3Session    *session.Session
-	S3Bucket     string
-	S3Region     string
+	AWSClient    AWSClient
 }
 
-// NewClient creates a new ElevenLabs client with S3 integration for audio storage.
+// NewClient creates a new ElevenLabs client with AWS integration for audio storage.
 // The client supports both speech-to-text and text-to-speech operations.
 //
 // Parameters:
 //   - apiKey: Your ElevenLabs API key for authentication
 //   - httpClient: HTTP client for making requests to ElevenLabs API
-//   - s3Session: AWS session configured with credentials for S3 operations
-//   - s3Bucket: Name of the S3 bucket where audio files will be stored
-//   - s3Region: AWS region where the S3 bucket is located
+//   - awsClient: AWS client configured for S3 operations
 //
 // Returns a configured Client ready for use with ElevenLabs APIs.
-func NewClient(apiKey string, httpClient http.Client, s3Session *session.Session, s3Bucket string, s3Region string) Client {
+func NewClient(apiKey string, httpClient http.Client, awsClient AWSClient) Client {
 	return Client{
 		APIKey:       apiKey,
 		LanguageCode: "pt",
 		HTTPClient:   &httpClient,
-		S3Session:    s3Session,
-		S3Bucket:     s3Bucket,
-		S3Region:     s3Region,
+		AWSClient:    awsClient,
 	}
 }
