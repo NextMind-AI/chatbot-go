@@ -10,7 +10,7 @@ func (mp *MessageProcessor) markMessageAsRead(messageUUID string) error {
 }
 
 func (mp *MessageProcessor) processWithAI(ctx context.Context, userID string, chatHistory []redis.ChatMessage) error {
-	return mp.openaiClient.ProcessChatStreamingWithTools(
+	return mp.openaiClient.ProcessChatStreaming(
 		ctx,
 		userID,
 		chatHistory,

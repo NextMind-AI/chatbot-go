@@ -17,6 +17,7 @@ type MessageProcessor struct {
 	openaiClient     openai.Client
 	elevenLabsClient elevenlabs.Client
 	executionManager *execution.Manager
+	debounceManager  *DebounceManager
 }
 
 func NewMessageProcessor(vonageClient vonage.Client, redisClient redis.Client, openaiClient openai.Client, elevenLabsClient elevenlabs.Client, execManager *execution.Manager) *MessageProcessor {
@@ -26,16 +27,16 @@ func NewMessageProcessor(vonageClient vonage.Client, redisClient redis.Client, o
 		openaiClient:     openaiClient,
 		elevenLabsClient: elevenLabsClient,
 		executionManager: execManager,
+		debounceManager:  NewDebounceManager(),
 	}
 }
 
 func (mp *MessageProcessor) ProcessMessage(message InboundMessage) {
-	log.Info().Str("message_uuid", message.MessageUUID).Msg("Processing message")
+	log.Info().Str("message_uuid", message.MessageUUID).Msg("Received message - scheduling for debounced processing")
 
 	userID := message.From
-	ctx := mp.executionManager.Start(userID)
-	defer mp.executionManager.Cleanup(userID, ctx)
 
+	// Mark message as read immediately
 	if err := mp.markMessageAsRead(message.MessageUUID); err != nil {
 		log.Error().
 			Err(err).
@@ -43,16 +44,13 @@ func (mp *MessageProcessor) ProcessMessage(message InboundMessage) {
 			Msg("Error marking message as read")
 	}
 
+	// Extract and store message content immediately
 	processedMsg, err := mp.extractMessageContent(message)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("message_uuid", message.MessageUUID).
 			Msg("Error processing message content")
-		return
-	}
-
-	if mp.cancelled(ctx, userID, "after content extraction") {
 		return
 	}
 
@@ -63,6 +61,22 @@ func (mp *MessageProcessor) ProcessMessage(message InboundMessage) {
 			Msg("Error storing user message")
 	}
 
+	// Use debounce manager to schedule AI processing after 15 seconds
+	// If another message comes within 15 seconds, this timer will be reset
+	mp.debounceManager.ProcessMessage(userID, func() {
+		mp.processMessageWithAI(userID)
+	})
+}
+
+// processMessageWithAI handles the actual AI processing after the debounce period
+func (mp *MessageProcessor) processMessageWithAI(userID string) {
+	log.Info().Str("user_id", userID).Msg("Starting AI processing after debounce period")
+
+	// Start execution context for this processing
+	ctx := mp.executionManager.Start(userID)
+	defer mp.executionManager.Cleanup(userID, ctx)
+
+	// Get the latest chat history
 	chatHistory, err := mp.getChatHistory(userID)
 	if err != nil {
 		log.Error().
@@ -88,7 +102,7 @@ func (mp *MessageProcessor) ProcessMessage(message InboundMessage) {
 		return
 	}
 
-	log.Info().Str("user_id", userID).Msg("Completed message processing")
+	log.Info().Str("user_id", userID).Msg("Completed debounced message processing")
 }
 
 func (mp *MessageProcessor) cancelled(ctx context.Context, userID, stage string) bool {

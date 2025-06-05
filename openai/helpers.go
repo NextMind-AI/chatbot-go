@@ -35,7 +35,7 @@ func (c *Client) createChatCompletionWithTools(
 		openai.ChatCompletionNewParams{
 			Messages: messages,
 			Model:    openai.ChatModelGPT4_1Mini,
-			Tools:    []openai.ChatCompletionToolParam{sleepTool},
+			// Removed tools since we no longer use the sleep tool
 		},
 	)
 }
