@@ -87,7 +87,7 @@ func (c *Client) addMessage(userID string, message ChatMessage) error {
 		return err
 	}
 
-	c.rdb.Expire(c.ctx, key, 24*time.Hour)
+	c.rdb.Expire(c.ctx, key, 30*24*time.Hour)
 
 	return nil
 }
