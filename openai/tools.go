@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"chatbot/config"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -89,6 +90,12 @@ type CategoryInfo struct {
 	Count       int     `json:"count"`
 	AvgPrice    float64 `json:"avg_price"`
 	AvgDuration int     `json:"avg_duration"`
+}
+
+// loadTrinksConfig loads Trinks API configuration
+func loadTrinksConfig() (apiKey, estabelecimentoID, baseURL string) {
+	cfg := config.Load()
+	return cfg.TrinksAPIKey, cfg.TrinksEstabelecimentoID, cfg.TrinksBaseURL
 }
 
 // processSleepTool processes a sleep tool call from the AI.
@@ -185,13 +192,12 @@ func (c *Client) processCheckServicesTool(
 
 // fetchServicesFromAPI calls the Trinks API to get service information
 func (c *Client) fetchServicesFromAPI(ctx context.Context, request ServiceSearchRequest) (*ServiceSearchResponse, error) {
-	// API configuration - you might want to move this to config
-	apiKey := "aYUuejFVLk32PLEV14kAw9mX8U7BxBwtnWS43Tdb"
-	estabelecimentoID := "222326"
+	// Load config directly in this function
+	apiKey, estabelecimentoID, baseURL := loadTrinksConfig()
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.trinks.com/v1/servicos", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/servicos", nil)
 	if err != nil {
 		return nil, err
 	}
