@@ -158,6 +158,11 @@ func (mp *MessageProcessor) GetProcessorStatus() map[string]interface{} {
 	}
 }
 
+// GetRedisClient returns the Redis client for CRM operations
+func (mp *MessageProcessor) GetRedisClient() *redis.Client {
+	return &mp.redisClient
+}
+
 func (mp *MessageProcessor) cancelled(ctx context.Context, userID, stage string) bool {
 	if ctx.Err() != nil {
 		if ctx.Err() == context.Canceled {

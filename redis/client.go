@@ -117,3 +117,70 @@ func (c *Client) ClearChatHistory(userID string) error {
 	key := fmt.Sprintf("chat_history:%s", userID)
 	return c.rdb.Del(c.ctx, key).Err()
 }
+
+// GetAllActiveConversations returns all user IDs that have active conversations
+func (c *Client) GetAllActiveConversations() ([]string, error) {
+	pattern := "chat_history:*"
+	keys, err := c.rdb.Keys(c.ctx, pattern).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	var userIDs []string
+	for _, key := range keys {
+		// Extract user ID from key (remove "chat_history:" prefix)
+		if len(key) > 13 { // len("chat_history:") = 13
+			userID := key[13:]
+			userIDs = append(userIDs, userID)
+		}
+	}
+
+	return userIDs, nil
+}
+
+// GetChatHistoryWithPagination returns paginated chat history for a user
+func (c *Client) GetChatHistoryWithPagination(userID string, page, pageSize int, startTime, endTime *time.Time) ([]ChatMessage, int, error) {
+	key := fmt.Sprintf("chat_history:%s", userID)
+
+	// Get all messages first
+	messages, err := c.rdb.LRange(c.ctx, key, 0, -1).Result()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var chatHistory []ChatMessage
+	for _, message := range messages {
+		var msg ChatMessage
+		err := json.Unmarshal([]byte(message), &msg)
+		if err != nil {
+			continue
+		}
+
+		// Filter by date range if provided
+		if startTime != nil && msg.Timestamp.Before(*startTime) {
+			continue
+		}
+		if endTime != nil && msg.Timestamp.After(*endTime) {
+			continue
+		}
+
+		chatHistory = append(chatHistory, msg)
+	}
+
+	totalCount := len(chatHistory)
+
+	// Apply pagination
+	start := (page - 1) * pageSize
+	end := start + pageSize
+
+	if start >= totalCount {
+		return []ChatMessage{}, totalCount, nil
+	}
+
+	if end > totalCount {
+		end = totalCount
+	}
+
+	paginatedHistory := chatHistory[start:end]
+	return paginatedHistory, totalCount, nil
+}
