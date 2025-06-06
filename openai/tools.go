@@ -344,7 +344,10 @@ func (c *Client) handleToolCalls(
 		case "check_services":
 			toolMessage, success := c.processCheckServicesTool(ctx, userID, toolCall)
 			if !success {
-				continue
+				toolMessage = openai.ToolMessage("Error processing service information", toolCall.ID)
+				log.Error().
+					Str("user_id", userID).
+					Msg("Failed to process check_services tool call")
 			}
 			messages = append(messages, toolMessage)
 		}
