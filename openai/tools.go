@@ -146,48 +146,53 @@ func (c *Client) processSleepTool(
 // It parses the arguments, fetches the service data from the API, and returns the result.
 // Returns a tool message and a success flag indicating whether the operation completed successfully.
 func (c *Client) processCheckServicesTool(
-	ctx context.Context,
-	userID string,
-	toolCall openai.ChatCompletionMessageToolCall,
-) (openai.ChatCompletionMessageParamUnion, bool) {
-	var request ServiceSearchRequest
-	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("user_id", userID).
-			Msg("Error parsing check_services function arguments")
-		return openai.ToolMessage("Error parsing service search request", toolCall.ID), false
-	}
+    ctx context.Context,
+    userID string,
+    toolCall openai.ChatCompletionMessage,
+) (openai.ChatCompletionMessage, bool) {
+    var request ServiceSearchRequest
+    if err := json.Unmarshal([]byte(toolCall.Content), &request); err != nil {
+        log.Error().Err(err).
+            Str("user_id", userID).
+            Msg("Error parsing check_services function arguments")
+        // build an error‐tool message
+        return openai.ChatCompletionMessage{
+            Role:    openai.ChatMessageRoleTool,
+            Name:    toolCall.Name,
+            Content: `{"error":"invalid arguments"}`,
+        }, false
+    }
 
-	log.Info().
-		Str("user_id", userID).
-		Str("query_type", request.QueryType).
-		Str("search_term", request.SearchTerm).
-		Str("category", request.Category).
-		Msg("Processing service search request")
+    respData, err := c.fetchServicesFromAPI(ctx, request)
+    if err != nil {
+        log.Error().Err(err).
+            Str("user_id", userID).
+            Msg("Error fetching services from API")
+        return openai.ChatCompletionMessage{
+            Role:    openai.ChatMessageRoleTool,
+            Name:    toolCall.Name,
+            Content: `{"error":"api failure"}`,
+        }, false
+    }
 
-	// Call Trinks API to get services
-	response, err := c.fetchServicesFromAPI(ctx, request)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("user_id", userID).
-			Msg("Error fetching services from API")
-		return openai.ToolMessage("Error fetching services information", toolCall.ID), false
-	}
+    payload, err := json.Marshal(respData)
+    if err != nil {
+        log.Error().Err(err).
+            Str("user_id", userID).
+            Msg("Error marshaling service response")
+        return openai.ChatCompletionMessage{
+            Role:    openai.ChatMessageRoleTool,
+            Name:    toolCall.Name,
+            Content: `{"error":"marshal failure"}`,
+        }, false
+    }
 
-	// Convert response to JSON for the AI
-	responseJSON, err := json.Marshal(response)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("user_id", userID).
-			Msg("Error marshaling service response")
-		return openai.ToolMessage("Error processing service information", toolCall.ID), false
-	}
-
-	return openai.ToolMessage(string(responseJSON), toolCall.ID), true
+    // SUCCESS: build the tool‐response message
+    return openai.ChatCompletionMessage{
+        Role:    openai.ChatMessageRoleTool,
+        Name:    toolCall.Name,                // should be "check_services"
+        Content: string(payload),              // your JSON
+    }, true
 }
 
 // fetchServicesFromAPI calls the Trinks API to get service information
