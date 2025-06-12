@@ -35,21 +35,21 @@ var sleepTool = openai.ChatCompletionToolParam{
 var checkServicesTool = openai.ChatCompletionToolParam{
 	Function: openai.FunctionDefinitionParam{
 		Name:        "check_services",
-		Description: openai.String("Search and filter available salon services by category, name, or general inquiries. Use when customer asks about services, treatments, or wants to know what's available."),
+		Description: openai.String("OBRIGATÓRIO: Use IMEDIATAMENTE quando cliente perguntar sobre serviços, preços ou tratamentos. Esta ferramenta busca informações atualizadas dos serviços da barbearia. NÃO informe que vai 'verificar' - USE AGORA."),
 		Parameters: openai.FunctionParameters{
 			"type": "object",
 			"properties": map[string]any{
 				"search_term": map[string]string{
 					"type":        "string",
-					"description": "Specific service name or treatment to search for (e.g., 'corte', 'barba', 'sobrancelha')",
+					"description": "Nome específico do serviço procurado (ex: 'corte', 'barba', 'sobrancelha')",
 				},
 				"category": map[string]string{
 					"type":        "string",
-					"description": "Service category to filter by (e.g., 'Cabelo', 'Barba', 'Sobrancelha')",
+					"description": "Categoria do serviço (ex: 'Cabelo', 'Barba', 'Sobrancelha')",
 				},
 				"query_type": map[string]string{
 					"type":        "string",
-					"description": "Type of query: 'specific' for exact service lookup, 'category' for category browsing, 'general' for overview of all services",
+					"description": "Tipo de consulta obrigatório",
 					"enum":        "[\"specific\", \"category\", \"general\"]",
 				},
 			},

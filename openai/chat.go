@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/openai/openai-go"
+	"github.com/rs/zerolog/log"
 )
 
 // ProcessChat processes a chat conversation without tools using OpenAI's API.
@@ -37,6 +38,11 @@ func (c *Client) ProcessChatWithTools(
 ) (string, error) {
 	messages := convertChatHistory(chatHistory)
 
+	log.Info().
+		Str("user_id", userID).
+		Int("message_count", len(messages)).
+		Msg("Starting chat processing with tools")
+
 	chatCompletion, err := c.createChatCompletionWithTools(ctx, messages)
 	if err != nil {
 		return "", err
@@ -44,7 +50,19 @@ func (c *Client) ProcessChatWithTools(
 
 	toolCalls := chatCompletion.Choices[0].Message.ToolCalls
 
+	log.Info().
+		Str("user_id", userID).
+		Int("tool_calls_count", len(toolCalls)).
+		Str("message_content", chatCompletion.Choices[0].Message.Content).
+		Msg("Received response from OpenAI")
+
 	if len(toolCalls) > 0 {
+		log.Info().
+			Str("user_id", userID).
+			Str("tool_name", toolCalls[0].Function.Name).
+			Str("tool_args", toolCalls[0].Function.Arguments).
+			Msg("Processing tool calls")
+
 		messages = append(messages, chatCompletion.Choices[0].Message.ToParam())
 
 		messages, err = c.handleToolCalls(ctx, userID, messages, toolCalls)
