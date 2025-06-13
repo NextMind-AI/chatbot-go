@@ -367,7 +367,7 @@ func (c *Client) processCancelarAgendamentoTool(
 		log.Error().Err(err).
 			Str("user_id", userID).
 			Msg("Erro ao interpretar argumentos de cancelar_agendamento")
-		return openai.ToolMessage("Parâmetros inválidos para cancelamento de agendamento", toolCall.ID), false
+		return openai.ToolMessage("Parâmetros inválidos para cancelamento", toolCall.ID), false
 	}
 
 	log.Info().
@@ -816,13 +816,13 @@ func (c *Client) fetchServicesFromAPI(ctx context.Context, request ServiceSearch
 
     var apiResponse struct {
         Data []struct {
-            ID                   string  `json:"id"`
-            Nome                 string  `json:"nome"`
-            Categoria            string  `json:"categoria"`
-            DuracaoEmMinutos     int     `json:"duracaoEmMinutos"`
-            Preco                float64 `json:"preco"`
-            Descricao            string  `json:"descricao"`
-            VisivelParaCliente   bool    `json:"visivelParaCliente"`
+            ID                   interface{} `json:"id"`                   // Mudança: aceita tanto string quanto número
+            Nome                 string      `json:"nome"`
+            Categoria            string      `json:"categoria"`
+            DuracaoEmMinutos     int         `json:"duracaoEmMinutos"`
+            Preco                float64     `json:"preco"`
+            Descricao            string      `json:"descricao"`
+            VisivelParaCliente   bool        `json:"visivelParaCliente"`
         } `json:"data"`
     }
 
@@ -893,13 +893,13 @@ func (c *Client) processCheckServicesTool(
 
 // processServiceDataByCategory organiza os serviços por categoria (como na função Python)
 func (c *Client) processServiceDataByCategory(rawData []struct {
-    ID                   string  `json:"id"`
-    Nome                 string  `json:"nome"`
-    Categoria            string  `json:"categoria"`
-    DuracaoEmMinutos     int     `json:"duracaoEmMinutos"`
-    Preco                float64 `json:"preco"`
-    Descricao            string  `json:"descricao"`
-    VisivelParaCliente   bool    `json:"visivelParaCliente"`
+    ID                   interface{} `json:"id"`                   // Mudança: aceita tanto string quanto número
+    Nome                 string      `json:"nome"`
+    Categoria            string      `json:"categoria"`
+    DuracaoEmMinutos     int         `json:"duracaoEmMinutos"`
+    Preco                float64     `json:"preco"`
+    Descricao            string      `json:"descricao"`
+    VisivelParaCliente   bool        `json:"visivelParaCliente"`
 }, request ServiceSearchRequest) *ServiceSearchResponse {
     
     servicosPorCategoria := make(map[string][]ServiceInfo)
@@ -911,8 +911,21 @@ func (c *Client) processServiceDataByCategory(rawData []struct {
         categoria := service.Categoria
         categoriasDisponiveis[categoria] = true
 
+        // Converter ID para string independente do tipo
+        var idStr string
+        switch id := service.ID.(type) {
+        case string:
+            idStr = id
+        case float64:
+            idStr = fmt.Sprintf("%.0f", id)
+        case int:
+            idStr = fmt.Sprintf("%d", id)
+        default:
+            idStr = fmt.Sprintf("%v", id)
+        }
+
         serviceInfo := ServiceInfo{
-            ID:        service.ID,
+            ID:        idStr,
             Nome:      service.Nome,
             Descricao: service.Descricao,
             Duracao:   service.DuracaoEmMinutos,
