@@ -4,6 +4,7 @@ import (
 	"chatbot/config"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -35,25 +36,21 @@ var sleepTool = openai.ChatCompletionToolParam{
 var checkServicesTool = openai.ChatCompletionToolParam{
 	Function: openai.FunctionDefinitionParam{
 		Name:        "check_services",
-		Description: openai.String("Search and filter available salon services by category, name, or general inquiries. Use when customer asks about services, treatments, or wants to know what's available."),
+		Description: openai.String("Lista todos os serviços disponíveis organizados por categoria, com opção de filtrar por categoria específica."),
 		Parameters: openai.FunctionParameters{
 			"type": "object",
 			"properties": map[string]any{
-				"search_term": map[string]string{
+				"categoria_filtro": map[string]string{
 					"type":        "string",
-					"description": "Specific service name or treatment to search for (e.g., 'corte', 'barba', 'sobrancelha')",
+					"description": "Categoria específica para filtrar os serviços (opcional). Ex: 'Cabelo', 'Barba', 'Sobrancelha'",
 				},
-				"category": map[string]string{
-					"type":        "string",
-					"description": "Service category to filter by (e.g., 'Cabelo', 'Barba', 'Sobrancelha')",
-				},
-				"query_type": map[string]string{
-					"type":        "string",
-					"description": "Type of query: 'specific' for exact service lookup, 'category' for category browsing, 'general' for overview of all services",
-					"enum":        "[\"specific\", \"category\", \"general\"]",
+				"mostrar_resumo": map[string]any{
+					"type":        "boolean",
+					"description": "Se deve incluir resumo estatístico por categoria (padrão: true)",
+					"default":     true,
 				},
 			},
-			"required": []string{"query_type"},
+			"required": []string{},
 		},
 	},
 }
@@ -236,38 +233,35 @@ type ClientCheckResponse struct {
 	ClientName string `json:"client_name,omitempty"`
 }
 
-// ServiceSearchRequest represents the structure for service search
+// ServiceSearchRequest representa a estrutura atualizada para busca de serviços
 type ServiceSearchRequest struct {
-	SearchTerm string `json:"search_term,omitempty"`
-	Category   string `json:"category,omitempty"`
-	QueryType  string `json:"query_type"`
+	CategoriaFiltro string `json:"categoria_filtro,omitempty"`
+	MostrarResumo   bool   `json:"mostrar_resumo"`
 }
 
-// ServiceSearchResponse represents the response from service search
+// ServiceSearchResponse representa a resposta atualizada da busca de serviços
 type ServiceSearchResponse struct {
-	Services         []ServiceInfo            `json:"services"`
-	Categories       []string                 `json:"categories"`
-	TotalServices    int                      `json:"total_services"`
-	SearchPerformed  bool                     `json:"search_performed"`
-	CategorySummary  map[string]CategoryInfo  `json:"category_summary,omitempty"`
+	ServicosPorCategoria map[string][]ServiceInfo       `json:"servicos_por_categoria"`
+	ResumoCategoria      map[string]CategorySummary     `json:"resumo_categoria,omitempty"`
+	TotalServicos        int                            `json:"total_servicos"`
+	CategoriasDisponiveis []string                      `json:"categorias_disponiveis"`
 }
 
-// ServiceInfo represents individual service information
+// CategorySummary representa o resumo estatístico de uma categoria
+type CategorySummary struct {
+	Quantidade     int     `json:"quantidade"`
+	PrecoMedio     float64 `json:"preco_medio"`
+	DuracaoMedia   int     `json:"duracao_media"`
+}
+
+// ServiceInfo representa informação individual do serviço (atualizada)
 type ServiceInfo struct {
 	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Category    string  `json:"category"`
-	Duration    int     `json:"duration"`
-	Price       float64 `json:"price"`
-	Description string  `json:"description"`
-	Visible     bool    `json:"visible"`
-}
-
-// CategoryInfo represents category summary information
-type CategoryInfo struct {
-	Count       int     `json:"count"`
-	AvgPrice    float64 `json:"avg_price"`
-	AvgDuration int     `json:"avg_duration"`
+	Nome        string  `json:"nome"`
+	Descricao   string  `json:"descricao"`
+	Duracao     int     `json:"duracao"`
+	Preco       float64 `json:"preco"`
+	Visivel     bool    `json:"visivel"`
 }
 
 // AppointmentRequest representa os dados necessários para criar um agendamento
@@ -800,186 +794,200 @@ func (c *Client) processSleepTool(
 	return openai.ToolMessage("Sleep completed", toolCall.ID), true
 }
 
-// fetchServicesFromAPI calls the Trinks API to get service information
+// fetchServicesFromAPI busca serviços da API Trinks e organiza por categoria
 func (c *Client) fetchServicesFromAPI(ctx context.Context, request ServiceSearchRequest) (*ServiceSearchResponse, error) {
-	// Load config directly in this function
-	apiKey, estabelecimentoID, baseURL := loadTrinksConfig()
+    apiKey, estabelecimentoID, baseURL := loadTrinksConfig()
+    client := &http.Client{Timeout: 10 * time.Second}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+    req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/servicos", nil)
+    if err != nil {
+        return nil, err
+    }
 
-	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/servicos", nil)
-	if err != nil {
-		return nil, err
-	}
+    req.Header.Set("accept", "application/json")
+    req.Header.Set("estabelecimentoId", estabelecimentoID)
+    req.Header.Set("X-Api-Key", apiKey)
 
-	req.Header.Set("accept", "application/json")
-	req.Header.Set("estabelecimentoId", estabelecimentoID)
-	req.Header.Set("X-Api-Key", apiKey)
+    resp, err := client.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+    var apiResponse struct {
+        Data []struct {
+            ID                   string  `json:"id"`
+            Nome                 string  `json:"nome"`
+            Categoria            string  `json:"categoria"`
+            DuracaoEmMinutos     int     `json:"duracaoEmMinutos"`
+            Preco                float64 `json:"preco"`
+            Descricao            string  `json:"descricao"`
+            VisivelParaCliente   bool    `json:"visivelParaCliente"`
+        } `json:"data"`
+    }
 
-	var apiResponse struct {
-		Data []struct {
-			ID                   string  `json:"id"`
-			Nome                 string  `json:"nome"`
-			Categoria            string  `json:"categoria"`
-			DuracaoEmMinutos     int     `json:"duracaoEmMinutos"`
-			Preco                float64 `json:"preco"`
-			Descricao            string  `json:"descricao"`
-			VisivelParaCliente   bool    `json:"visivelParaCliente"`
-		} `json:"data"`
-	}
+    if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+        return nil, err
+    }
 
-	if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
-		return nil, err
-	}
-
-	// Process and filter the response based on request
-	return c.processServiceData(apiResponse.Data, request), nil
+    return c.processServiceDataByCategory(apiResponse.Data, request), nil
 }
 
-// processCheckServicesTool processes a service search tool call from the AI.
-// It parses the arguments, fetches the service data from the API, and returns the result.
-// Returns a tool message and a success flag indicating whether the operation completed successfully.
+// processCheckServicesTool processa a chamada da tool de consulta de serviços
 func (c *Client) processCheckServicesTool(
-	ctx context.Context,
-	userID string,
-	toolCall openai.ChatCompletionMessageToolCall,
+    ctx context.Context,
+    userID string,
+    toolCall openai.ChatCompletionMessageToolCall,
 ) (openai.ChatCompletionMessageParamUnion, bool) {
-	var request ServiceSearchRequest
-	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("user_id", userID).
-			Msg("Error parsing check_services function arguments")
-		return openai.ToolMessage("Error parsing service search request", toolCall.ID), false
+    var request ServiceSearchRequest
+    err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
+    if err != nil {
+        log.Error().
+            Err(err).
+            Str("user_id", userID).
+            Msg("Erro ao interpretar argumentos de check_services")
+        return openai.ToolMessage("Erro ao interpretar parâmetros de consulta de serviços", toolCall.ID), false
+    }
+
+	// Definir padrão para mostrar resumo se não especificado
+	if !request.MostrarResumo && request.CategoriaFiltro == "" {
+		request.MostrarResumo = true
 	}
 
-	log.Info().
-		Str("user_id", userID).
-		Str("query_type", request.QueryType).
-		Str("search_term", request.SearchTerm).
-		Str("category", request.Category).
-		Msg("Processing service search request")
+    log.Info().
+        Str("user_id", userID).
+        Str("categoria_filtro", request.CategoriaFiltro).
+        Bool("mostrar_resumo", request.MostrarResumo).
+        Msg("Processando consulta de serviços")
 
-	// Call Trinks API to get services
-	response, err := c.fetchServicesFromAPI(ctx, request)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("user_id", userID).
-			Msg("Error fetching services from API")
-		return openai.ToolMessage("Error fetching services information", toolCall.ID), false
-	}
+    // Buscar serviços da API
+    response, err := c.fetchServicesFromAPI(ctx, request)
+    if err != nil {
+        log.Error().
+            Err(err).
+            Str("user_id", userID).
+            Msg("Erro ao buscar serviços")
+        return openai.ToolMessage("Erro ao consultar serviços disponíveis", toolCall.ID), false
+    }
 
-	// Convert response to JSON for the AI
-	responseJSON, err := json.Marshal(response)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("user_id", userID).
-			Msg("Error marshaling service response")
-		return openai.ToolMessage("Error processing service information", toolCall.ID), false
-	}
+    // Se filtro não encontrou resultados, informar categorias disponíveis
+    if request.CategoriaFiltro != "" && len(response.ServicosPorCategoria) == 0 {
+        mensagemErro := fmt.Sprintf("Nenhuma categoria encontrada com o filtro: '%s'. Categorias disponíveis: %s", 
+            request.CategoriaFiltro, 
+            strings.Join(response.CategoriasDisponiveis, ", "))
+        return openai.ToolMessage(mensagemErro, toolCall.ID), false
+    }
 
-	return openai.ToolMessage(string(responseJSON), toolCall.ID), true
+    respJSON, err := json.Marshal(response)
+    if err != nil {
+        log.Error().
+            Err(err).
+            Msg("Erro ao serializar resposta de serviços")
+        return openai.ToolMessage("Erro ao processar resposta de serviços", toolCall.ID), false
+    }
+
+    return openai.ToolMessage(string(respJSON), toolCall.ID), true
 }
 
-// processServiceData processes the raw API data and applies filtering
-func (c *Client) processServiceData(rawData []struct {
-	ID                   string  `json:"id"`
-	Nome                 string  `json:"nome"`
-	Categoria            string  `json:"categoria"`
-	DuracaoEmMinutos     int     `json:"duracaoEmMinutos"`
-	Preco                float64 `json:"preco"`
-	Descricao            string  `json:"descricao"`
-	VisivelParaCliente   bool    `json:"visivelParaCliente"`
+
+
+// processServiceDataByCategory organiza os serviços por categoria (como na função Python)
+func (c *Client) processServiceDataByCategory(rawData []struct {
+    ID                   string  `json:"id"`
+    Nome                 string  `json:"nome"`
+    Categoria            string  `json:"categoria"`
+    DuracaoEmMinutos     int     `json:"duracaoEmMinutos"`
+    Preco                float64 `json:"preco"`
+    Descricao            string  `json:"descricao"`
+    VisivelParaCliente   bool    `json:"visivelParaCliente"`
 }, request ServiceSearchRequest) *ServiceSearchResponse {
+    
+    servicosPorCategoria := make(map[string][]ServiceInfo)
+    categoriasDisponiveis := make(map[string]bool)
+    totalServicos := 0
 
-	var filteredServices []ServiceInfo
-	categories := make(map[string]bool)
-	categorySummary := make(map[string]CategoryInfo)
+    // Organizar serviços por categoria
+    for _, service := range rawData {
+        categoria := service.Categoria
+        categoriasDisponiveis[categoria] = true
 
-	// Convert raw data to ServiceInfo and apply filtering
-	for _, service := range rawData {
-		serviceInfo := ServiceInfo{
-			ID:          service.ID,
-			Name:        service.Nome,
-			Category:    service.Categoria,
-			Duration:    service.DuracaoEmMinutos,
-			Price:       service.Preco,
-			Description: service.Descricao,
-			Visible:     service.VisivelParaCliente,
-		}
+        serviceInfo := ServiceInfo{
+            ID:        service.ID,
+            Nome:      service.Nome,
+            Descricao: service.Descricao,
+            Duracao:   service.DuracaoEmMinutos,
+            Preco:     service.Preco,
+            Visivel:   service.VisivelParaCliente,
+        }
 
-		categories[service.Categoria] = true
+        servicosPorCategoria[categoria] = append(servicosPorCategoria[categoria], serviceInfo)
+        totalServicos++
+    }
 
-		// Update category summary
-		if summary, exists := categorySummary[service.Categoria]; exists {
-			summary.Count++
-			summary.AvgPrice = (summary.AvgPrice*(float64(summary.Count-1)) + service.Preco) / float64(summary.Count)
-			summary.AvgDuration = (summary.AvgDuration*(summary.Count-1) + service.DuracaoEmMinutos) / summary.Count
-			categorySummary[service.Categoria] = summary
-		} else {
-			categorySummary[service.Categoria] = CategoryInfo{
-				Count:       1,
-				AvgPrice:    service.Preco,
-				AvgDuration: service.DuracaoEmMinutos,
-			}
-		}
+    // Aplicar filtro de categoria se especificado
+    if request.CategoriaFiltro != "" {
+        categoriasFiltradas := make(map[string][]ServiceInfo)
+        filtroLower := strings.ToLower(request.CategoriaFiltro)
+        
+        for categoria, servicos := range servicosPorCategoria {
+            if strings.Contains(strings.ToLower(categoria), filtroLower) {
+                categoriasFiltradas[categoria] = servicos
+            }
+        }
+        
+        servicosPorCategoria = categoriasFiltradas
+        // Recalcular total após filtro
+        totalServicos = 0
+        for _, servicos := range servicosPorCategoria {
+            totalServicos += len(servicos)
+        }
+    }
 
-		// Apply filtering based on request type
-		include := false
-		switch request.QueryType {
-		case "general":
-			include = true
-		case "category":
-			if request.Category != "" {
-				include = strings.Contains(strings.ToLower(service.Categoria), strings.ToLower(request.Category))
-			} else {
-				include = true
-			}
-		case "specific":
-			if request.SearchTerm != "" {
-				searchTerm := strings.ToLower(request.SearchTerm)
-				serviceName := strings.ToLower(service.Nome)
-				include = strings.Contains(serviceName, searchTerm)
-			} else {
-				include = true
-			}
-		}
+    // Criar lista de categorias disponíveis
+    var listaCategoriasDisponiveis []string
+    for categoria := range categoriasDisponiveis {
+        listaCategoriasDisponiveis = append(listaCategoriasDisponiveis, categoria)
+    }
 
-		if include {
-			filteredServices = append(filteredServices, serviceInfo)
-		}
-	}
+    response := &ServiceSearchResponse{
+        ServicosPorCategoria:  servicosPorCategoria,
+        TotalServicos:         totalServicos,
+        CategoriasDisponiveis: listaCategoriasDisponiveis,
+    }
 
-	// Convert categories map to slice
-	var categoryList []string
-	for category := range categories {
-		categoryList = append(categoryList, category)
-	}
+    // Adicionar resumo se solicitado
+    if request.MostrarResumo {
+        response.ResumoCategoria = c.criarResumoCategoria(servicosPorCategoria)
+    }
 
-	response := &ServiceSearchResponse{
-		Services:        filteredServices,
-		Categories:      categoryList,
-		TotalServices:   len(filteredServices),
-		SearchPerformed: true,
-		CategorySummary: categorySummary,
-	}
+    return response
+}
 
-	// Limit results for general queries to avoid overwhelming response
-	if request.QueryType == "general" && len(filteredServices) > 10 {
-		response.Services = filteredServices[:10]
-		response.TotalServices = len(rawData) // Keep total count of all services
-	}
+// criarResumoCategoria cria resumo estatístico por categoria
+func (c *Client) criarResumoCategoria(servicosPorCategoria map[string][]ServiceInfo) map[string]CategorySummary {
+    resumo := make(map[string]CategorySummary)
+    
+    for categoria, servicos := range servicosPorCategoria {
+        if len(servicos) == 0 {
+            continue
+        }
 
-	return response
+        var somaPreco float64
+        var somaDuracao int
+        
+        for _, servico := range servicos {
+            somaPreco += servico.Preco
+            somaDuracao += servico.Duracao
+        }
+
+        resumo[categoria] = CategorySummary{
+            Quantidade:   len(servicos),
+            PrecoMedio:   somaPreco / float64(len(servicos)),
+            DuracaoMedia: somaDuracao / len(servicos),
+        }
+    }
+
+    return resumo
 }
 
 func (c *Client) fetchClientByPhone(ctx context.Context, phoneNumber string) (*ClientCheckResponse, error) {
