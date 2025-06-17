@@ -75,7 +75,7 @@ func (c *Client) processStreamingChat(ctx context.Context, config streamingConfi
 }
 
 // streamResponse creates a streaming chat completion and sends messages via WhatsApp as they arrive.
-// It handles the parsing of streamed JSON and manages message deduplication.
+// It handles the parsing of streamed JSON and manages message deduplication with guaranteed ordering.
 func (c *Client) streamResponse(
 	ctx context.Context,
 	config streamingConfig,
@@ -95,6 +95,14 @@ func (c *Client) streamResponse(
 	var fullContent strings.Builder
 	sentMessages := make(map[int]bool)
 
+	messageQueue := make(chan messageWithIndex, 100)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		c.sendMessagesSequentially(ctx, config, messageQueue)
+	}()
+
 	for stream.Next() {
 		evt := stream.Current()
 		if len(evt.Choices) > 0 {
@@ -113,69 +121,122 @@ func (c *Client) streamResponse(
 						Int("message_index", messageIndex).
 						Str("content", msg.Content).
 						Str("type", msg.Type).
-						Msg("Processing streamed message")
+						Msg("Queueing streamed message for sequential sending")
 
-					if msg.Type == "audio" {
-						audioURL, err := config.elevenLabsClient.ConvertTextToSpeechDefault(
-							msg.Content,
-						)
-						if err != nil {
-							log.Error().
-								Err(err).
-								Str("user_id", config.userID).
-								Str("content", msg.Content).
-								Msg("Error converting text to speech")
-							continue
-						}
-
-						response, err := config.vonageClient.SendWhatsAppAudioMessage(
-							config.toNumber,
-							audioURL,
-						)
-						if err != nil {
-							log.Error().
-								Err(err).
-								Str("user_id", config.userID).
-								Str("to", config.toNumber).
-								Str("audio_url", audioURL).
-								Msg("Error sending WhatsApp audio message")
-						} else {
-							log.Info().
-								Str("user_id", config.userID).
-								Str("message_uuid", response.MessageUUID).
-								Str("audio_url", audioURL).
-								Msg("Sent audio message via Vonage")
-						}
-					} else {
-						response, err := config.vonageClient.SendWhatsAppTextMessage(
-							config.toNumber,
-							msg.Content,
-						)
-						if err != nil {
-							log.Error().
-								Err(err).
-								Str("user_id", config.userID).
-								Str("to", config.toNumber).
-								Str("content", msg.Content).
-								Msg("Error sending WhatsApp text message")
-						} else {
-							log.Info().
-								Str("user_id", config.userID).
-								Str("message_uuid", response.MessageUUID).
-								Str("content", msg.Content).
-								Msg("Sent text message via Vonage")
-						}
+					select {
+					case messageQueue <- messageWithIndex{
+						message: msg,
+						index:   messageIndex,
+					}:
+					case <-ctx.Done():
+						close(messageQueue)
+						<-done
+						return ctx.Err()
 					}
 				}
 			}
 		}
 	}
 
+	close(messageQueue)
+	<-done
+
 	if err := stream.Err(); err != nil {
 		return err
 	}
 
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
+}
+
+// messageWithIndex wraps a message with its index for ordered processing
+type messageWithIndex struct {
+	message Message
+	index   int
+}
+
+// sendMessagesSequentially processes messages from the queue one at a time to ensure ordering
+func (c *Client) sendMessagesSequentially(
+	ctx context.Context,
+	config streamingConfig,
+	messageQueue <-chan messageWithIndex,
+) {
+	for msgWithIndex := range messageQueue {
+		msg := msgWithIndex.message
+		messageIndex := msgWithIndex.index
+
+		log.Info().
+			Str("user_id", config.userID).
+			Int("message_index", messageIndex).
+			Str("content", msg.Content).
+			Str("type", msg.Type).
+			Msg("Sending message sequentially")
+
+		if msg.Type == "audio" {
+			audioURL, err := config.elevenLabsClient.ConvertTextToSpeechDefault(
+				msg.Content,
+			)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("user_id", config.userID).
+					Str("content", msg.Content).
+					Int("message_index", messageIndex).
+					Msg("Error converting text to speech")
+				continue
+			}
+
+			response, err := config.vonageClient.SendWhatsAppAudioMessage(
+				config.toNumber,
+				audioURL,
+			)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("user_id", config.userID).
+					Str("to", config.toNumber).
+					Str("audio_url", audioURL).
+					Int("message_index", messageIndex).
+					Msg("Error sending WhatsApp audio message")
+			} else {
+				log.Info().
+					Str("user_id", config.userID).
+					Str("message_uuid", response.MessageUUID).
+					Str("audio_url", audioURL).
+					Int("message_index", messageIndex).
+					Msg("Sent audio message via Vonage in sequence")
+			}
+		} else {
+			response, err := config.vonageClient.SendWhatsAppTextMessage(
+				config.toNumber,
+				msg.Content,
+			)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("user_id", config.userID).
+					Str("to", config.toNumber).
+					Str("content", msg.Content).
+					Int("message_index", messageIndex).
+					Msg("Error sending WhatsApp text message")
+			} else {
+				log.Info().
+					Str("user_id", config.userID).
+					Str("message_uuid", response.MessageUUID).
+					Str("content", msg.Content).
+					Int("message_index", messageIndex).
+					Msg("Sent text message via Vonage in sequence")
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			log.Info().
+				Str("user_id", config.userID).
+				Msg("Context cancelled, stopping message sending")
+			return
+		default:
+		}
+	}
 }
 
 // finalizeStreamingResponse validates the final JSON response and stores it in Redis.
