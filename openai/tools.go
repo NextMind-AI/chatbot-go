@@ -845,9 +845,9 @@ func (c *Client) processFazerAgendamentoTool(
 	}
 
 	response := AppointmentResponse{
-		AppointmentID: agendamento.ID,
+		AppointmentID: strconv.Itoa(agendamento.ID), // CORRIGIR: converter int para string
 		Status:        "agendado",
-		Message:       fmt.Sprintf("Agendamento criado com sucesso! ID: %s", agendamento.ID),
+		Message:       fmt.Sprintf("Agendamento criado com sucesso! ID: %d", agendamento.ID),
 	}
 
 	respJSON, err := json.Marshal(response)
@@ -1208,7 +1208,7 @@ func (c *Client) processReagendarServicoTool(
 	}
 
 	response := RescheduleAppointmentResponse{
-		AppointmentID: resposta.AppointmentID,
+		AppointmentID: strconv.Itoa(resposta.ID), // CORRIGIR: usar resposta.ID e converter para string
 		Status:        "rescheduled",
 		Message:       "Serviço reagendado com sucesso",
 	}
