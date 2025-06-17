@@ -21,15 +21,15 @@ import (
 var checkServicesTool = openai.ChatCompletionToolParam{
 	Function: openai.FunctionDefinitionParam{
 		Name:        "check_services",
-		Description: openai.String("Lista todos os serviços disponíveis organizados por categoria, com opção de filtrar por categoria específica."),
+		Description: openai.String("Lista todos os serviços disponíveis organizados por categoria."),
 		Parameters: openai.FunctionParameters{
 			"type": "object",
 			"properties": map[string]any{
-				"categoria_filtro": map[string]string{
+				"categoria_filtro": map[string]any{
 					"type":        "string",
-					"description": "Categoria específica para filtrar os serviços (opcional). Ex: 'Cabelo', 'Barba', 'Sobrancelha'",
+					"description": "Categoria para filtrar (opcional). Ex: 'Cabelo', 'Barba'",
 				},
-				"mostrar_resumo": map[string]bool{
+				"mostrar_resumo": map[string]any{
 					"type":        "boolean",
 					"description": "Se deve incluir resumo estatístico por categoria (padrão: true)",
 					"default":     true,
@@ -47,17 +47,17 @@ var registerClientTool = openai.ChatCompletionToolParam{
 		Parameters: openai.FunctionParameters{
 			"type": "object",
 			"properties": map[string]any{
-				"name": map[string]string{
+				"name": map[string]any{
 					"type":        "string",
 					"description": "Nome completo do cliente",
 				},
-				"email": map[string]string{
+				"email": map[string]any{
 					"type":        "string",
-					"description": "E-mail do cliente (deve ser único no sistema)",
+					"description": "E-mail do cliente (deve ser único)",
 				},
-				"phone": map[string]string{
+				"phone": map[string]any{
 					"type":        "string",
-					"description": "Telefone do cliente with DDD (ex: 63991234567)",
+					"description": "Telefone com DDD (ex: 11987654321)",
 				},
 			},
 			"required": []string{"name", "email", "phone"},
@@ -126,7 +126,7 @@ func getAllTools() []openai.ChatCompletionToolParam {
 // PROCESSAMENTO DE TOOLS
 // ============================================================================
 
-func (c *Client) ProcessToolCalls(
+func (c *Client) HandleToolCalls(
 	ctx context.Context,
 	userID string,
 	toolCalls []openai.ChatCompletionMessageToolCall,
