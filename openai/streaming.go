@@ -20,7 +20,6 @@ type streamingConfig struct {
 	redisClient      *redis.Client
 	elevenLabsClient *elevenlabs.Client
 	toNumber         string
-	useTools         bool
 }
 
 // ProcessChatStreaming processes a chat conversation with streaming response.
@@ -42,13 +41,12 @@ func (c *Client) ProcessChatStreaming(
 		redisClient:      redisClient,
 		elevenLabsClient: elevenLabsClient,
 		toNumber:         toNumber,
-		useTools:         false,
 	}
 	return c.processStreamingChat(ctx, config)
 }
 
-// ProcessChatStreamingWithTools processes a chat conversation with streaming response and tool support.
-// It handles tool calls if needed, then streams the response to the user via WhatsApp.
+// ProcessChatStreamingWithTools processes a chat conversation with the new two-step approach:
+// First, it uses a sleep analyzer to determine wait time, then generates the actual response.
 func (c *Client) ProcessChatStreamingWithTools(
 	ctx context.Context,
 	userID string,
@@ -65,50 +63,15 @@ func (c *Client) ProcessChatStreamingWithTools(
 		redisClient:      redisClient,
 		elevenLabsClient: elevenLabsClient,
 		toNumber:         toNumber,
-		useTools:         true,
 	}
-	return c.processStreamingChat(ctx, config)
+	return c.ExecuteSleepAndRespond(ctx, config)
 }
 
-// processStreamingChat handles the core streaming logic for both tool and non-tool scenarios.
-// It consolidates the common streaming functionality to avoid code duplication.
+// processStreamingChat handles the core streaming logic.
+// Since tools are no longer used, this simply converts history and streams the response.
 func (c *Client) processStreamingChat(ctx context.Context, config streamingConfig) error {
 	messages := convertChatHistory(config.chatHistory)
-
-	if config.useTools {
-		toolMessages, err := c.processToolsIfNeeded(ctx, config.userID, messages)
-		if err != nil {
-			return err
-		}
-		messages = toolMessages
-	}
-
 	return c.streamResponse(ctx, config, messages)
-}
-
-// processToolsIfNeeded checks if tool calls are needed and processes them.
-// Returns the updated messages after handling any tool calls.
-func (c *Client) processToolsIfNeeded(
-	ctx context.Context,
-	userID string,
-	messages []openai.ChatCompletionMessageParamUnion,
-) ([]openai.ChatCompletionMessageParamUnion, error) {
-	chatCompletion, err := c.createChatCompletionWithTools(ctx, messages)
-	if err != nil {
-		return messages, err
-	}
-
-	toolCalls := chatCompletion.Choices[0].Message.ToolCalls
-	if len(toolCalls) > 0 {
-		messages = append(messages, chatCompletion.Choices[0].Message.ToParam())
-
-		messages, err = c.handleToolCalls(ctx, userID, messages, toolCalls)
-		if err != nil {
-			return messages, err
-		}
-	}
-
-	return messages, nil
 }
 
 // streamResponse creates a streaming chat completion and sends messages via WhatsApp as they arrive.

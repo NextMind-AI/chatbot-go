@@ -2,7 +2,6 @@ package openai
 
 import (
 	"chatbot/redis"
-	"context"
 
 	"github.com/openai/openai-go"
 )
@@ -22,20 +21,4 @@ func convertChatHistory(chatHistory []redis.ChatMessage) []openai.ChatCompletion
 		}
 	}
 	return messages
-}
-
-// createChatCompletionWithTools creates a chat completion request with tool capabilities.
-// It sends a request to OpenAI's API with the specified messages and available tools.
-func (c *Client) createChatCompletionWithTools(
-	ctx context.Context,
-	messages []openai.ChatCompletionMessageParamUnion,
-) (*openai.ChatCompletion, error) {
-	return c.client.Chat.Completions.New(
-		ctx,
-		openai.ChatCompletionNewParams{
-			Messages: messages,
-			Model:    openai.ChatModelGPT4_1Mini,
-			Tools:    []openai.ChatCompletionToolParam{sleepTool},
-		},
-	)
 }

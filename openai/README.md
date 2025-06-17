@@ -57,8 +57,15 @@ This package provides a structured interface for interacting with OpenAI's API, 
 - **Purpose**: Contains the system prompt that defines the AI's behavior
 - **Key Components**:
   - Detailed instructions for message formatting
-  - Guidelines for using the sleep tool
   - WhatsApp-specific conversation patterns
+  - Response generation guidelines
+
+#### `sleep_analyzer.go`
+- **Purpose**: Implements the sleep analyzer AI that determines appropriate wait times
+- **Key Components**:
+  - `sleepAnalyzerPrompt`: System prompt for the sleep analyzer
+  - `DetermineSleepTime()`: Analyzes user messages and returns wait time (8-25 seconds)
+  - `ExecuteSleepAndRespond()`: Orchestrates the two-step process
 
 ## Key Features
 
@@ -68,9 +75,15 @@ The streaming implementation uses a sophisticated parser that can extract comple
 - Reduced latency in conversation flow
 - Better user experience with immediate feedback
 
-### 2. Tool Integration
-The package supports OpenAI's function calling (tools) feature, currently implementing:
-- **Sleep Tool**: Allows the AI to pause when it detects the user might not have finished their thought
+### 2. Two-Step Processing Architecture
+The package now uses a two-step approach for handling conversations:
+- **Step 1 - Sleep Analyzer**: A dedicated AI that analyzes the user's message and determines an appropriate wait time (8-25 seconds) based on message completeness
+- **Step 2 - Response Generation**: The main chatbot AI generates the actual response after the determined wait time
+
+This separation ensures:
+- Every message gets an appropriate wait time
+- The main AI focuses solely on generating quality responses
+- Sleep decisions are not stored in Redis or passed to the main AI
 
 ### 3. Structured Output
 Uses OpenAI's JSON schema validation to ensure responses are properly formatted as message lists, preventing parsing errors and ensuring consistent output.

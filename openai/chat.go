@@ -3,6 +3,7 @@ package openai
 import (
 	"chatbot/redis"
 	"context"
+	"time"
 
 	"github.com/openai/openai-go"
 )
@@ -27,33 +28,35 @@ func (c *Client) ProcessChat(
 	return chatCompletion.Choices[0].Message.Content, nil
 }
 
-// ProcessChatWithTools processes a chat conversation with tool capabilities using OpenAI's API.
-// Handles tool calls and manages the conversation flow accordingly.
-// Returns the final AI response after processing any tool calls.
+// ProcessChatWithTools processes a chat conversation with the new two-step approach:
+// First, it uses a sleep analyzer to determine wait time, then generates the actual response.
 func (c *Client) ProcessChatWithTools(
 	ctx context.Context,
 	userID string,
 	chatHistory []redis.ChatMessage,
 ) (string, error) {
-	messages := convertChatHistory(chatHistory)
-
-	chatCompletion, err := c.createChatCompletionWithTools(ctx, messages)
-	if err != nil {
-		return "", err
-	}
-
-	toolCalls := chatCompletion.Choices[0].Message.ToolCalls
-
-	if len(toolCalls) > 0 {
-		messages = append(messages, chatCompletion.Choices[0].Message.ToParam())
-
-		messages, err = c.handleToolCalls(ctx, userID, messages, toolCalls)
-		if err != nil {
-			return "", err
+	// Get the last user message
+	var lastUserMessage string
+	for i := len(chatHistory) - 1; i >= 0; i-- {
+		if chatHistory[i].Role == "user" {
+			lastUserMessage = chatHistory[i].Content
+			break
 		}
-
-		return c.ProcessChat(ctx, messages)
 	}
 
-	return chatCompletion.Choices[0].Message.Content, nil
+	// Step 1: Determine sleep time using the sleep analyzer
+	sleepSeconds, err := c.DetermineSleepTime(ctx, userID, lastUserMessage)
+	if err != nil {
+		// Log warning but continue without sleep
+		sleepSeconds = 0
+	}
+
+	// Step 2: Execute the sleep if needed
+	if sleepSeconds > 0 {
+		time.Sleep(time.Duration(sleepSeconds) * time.Second)
+	}
+
+	// Step 3: Generate the actual response (without tools)
+	messages := convertChatHistory(chatHistory)
+	return c.ProcessChat(ctx, messages)
 }
