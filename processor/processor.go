@@ -7,6 +7,7 @@ import (
 	"chatbot/redis"
 	"chatbot/vonage"
 	"context"
+	"errors"
 
 	"github.com/rs/zerolog/log"
 )
@@ -77,6 +78,12 @@ func (mp *MessageProcessor) ProcessMessage(message InboundMessage) {
 	}
 
 	if err := mp.processWithAI(ctx, userID, chatHistory); err != nil {
+		if errors.Is(err, context.Canceled) {
+			log.Info().
+				Str("user_id", userID).
+				Msg("AI processing cancelled due to context cancellation")
+			return
+		}
 		log.Error().
 			Err(err).
 			Str("user_id", userID).
