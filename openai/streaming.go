@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/openai/openai-go"
 	"github.com/rs/zerolog/log"
@@ -160,9 +161,23 @@ func (c *Client) sendMessagesSequentially(
 	config streamingConfig,
 	messageQueue <-chan messageWithIndex,
 ) {
+	isFirstMessage := true
+
 	for msgWithIndex := range messageQueue {
 		msg := msgWithIndex.message
 		messageIndex := msgWithIndex.index
+
+		if !isFirstMessage {
+			select {
+			case <-time.After(200 * time.Millisecond):
+			case <-ctx.Done():
+				log.Info().
+					Str("user_id", config.userID).
+					Msg("Context cancelled during debounce delay")
+				return
+			}
+		}
+		isFirstMessage = false
 
 		log.Info().
 			Str("user_id", config.userID).
