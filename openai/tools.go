@@ -126,7 +126,7 @@ func getAllTools() []openai.ChatCompletionToolParam {
 // PROCESSAMENTO DE TOOLS
 // ============================================================================
 
-func (c *Client) HandleToolCalls(
+func (c *Client) handleToolCalls(
 	ctx context.Context,
 	userID string,
 	toolCalls []openai.ChatCompletionMessageToolCall,
