@@ -65,6 +65,134 @@ var registerClientTool = openai.ChatCompletionToolParam{
 	},
 }
 
+// Adicionar essas tools junto com as existentes (checkServicesTool e registerClientTool)
+
+var checkClientTool = openai.ChatCompletionToolParam{
+	Function: openai.FunctionDefinitionParam{
+		Name:        "check_cliente",
+		Description: openai.String("Verifica se o cliente existe com base no número de telefone."),
+		Parameters: openai.FunctionParameters{
+			"type": "object",
+			"properties": map[string]any{
+				"phone_number": map[string]any{
+					"type":        "string",
+					"description": "Número de telefone do cliente no formato DDD+Número (ex: 11999998888)",
+				},
+			},
+			"required": []string{"phone_number"},
+		},
+	},
+}
+
+var fazerAgendamentoTool = openai.ChatCompletionToolParam{
+	Function: openai.FunctionDefinitionParam{
+		Name:        "fazer_agendamento",
+		Description: openai.String("Cria um novo agendamento para um cliente."),
+		Parameters: openai.FunctionParameters{
+			"type": "object",
+			"properties": map[string]any{
+				"client_id": map[string]any{
+					"type":        "string",
+					"description": "ID do cliente",
+				},
+				"service_id": map[string]any{
+					"type":        "string",
+					"description": "ID do serviço a ser agendado",
+				},
+				"date": map[string]any{
+					"type":        "string",
+					"description": "Data do agendamento no formato YYYY-MM-DD",
+				},
+				"time": map[string]any{
+					"type":        "string",
+					"description": "Horário do agendamento no formato HH:MM",
+				},
+			},
+			"required": []string{"client_id", "service_id", "date", "time"},
+		},
+	},
+}
+
+var verificarHorariosDisponiveisTool = openai.ChatCompletionToolParam{
+	Function: openai.FunctionDefinitionParam{
+		Name:        "verificar_horarios_disponiveis",
+		Description: openai.String("Retorna os horários disponíveis para um dado serviço em uma data específica."),
+		Parameters: openai.FunctionParameters{
+			"type": "object",
+			"properties": map[string]any{
+				"service_id": map[string]any{
+					"type":        "string",
+					"description": "ID do serviço para o qual checar horários",
+				},
+				"date": map[string]any{
+					"type":        "string",
+					"description": "Data no formato YYYY-MM-DD para verificar disponibilidade",
+				},
+			},
+			"required": []string{"service_id", "date"},
+		},
+	},
+}
+
+var agendamentosClienteTool = openai.ChatCompletionToolParam{
+	Function: openai.FunctionDefinitionParam{
+		Name:        "agendamentos_cliente",
+		Description: openai.String("Retorna os agendamentos agendados para um cliente específico pelo ID."),
+		Parameters: openai.FunctionParameters{
+			"type": "object",
+			"properties": map[string]any{
+				"client_id": map[string]any{
+					"type":        "string",
+					"description": "ID do cliente para consulta de agendamentos",
+				},
+			},
+			"required": []string{"client_id"},
+		},
+	},
+}
+
+var cancelarAgendamentoTool = openai.ChatCompletionToolParam{
+	Function: openai.FunctionDefinitionParam{
+		Name:        "cancelar_agendamento",
+		Description: openai.String("Cancela um agendamento existente pelo ID."),
+		Parameters: openai.FunctionParameters{
+			"type": "object",
+			"properties": map[string]any{
+				"appointment_id": map[string]any{
+					"type":        "string",
+					"description": "ID do agendamento a ser cancelado",
+				},
+			},
+			"required": []string{"appointment_id"},
+		},
+	},
+}
+
+var reagendarServicoTool = openai.ChatCompletionToolParam{
+	Function: openai.FunctionDefinitionParam{
+		Name:        "reagendar_servico",
+		Description: openai.String("Altera a data e/ou hora de um agendamento existente."),
+		Parameters: openai.FunctionParameters{
+			"type": "object",
+			"properties": map[string]any{
+				"appointment_id": map[string]any{
+					"type":        "string",
+					"description": "ID do agendamento a ser reagendado",
+				},
+				"new_date": map[string]any{
+					"type":        "string",
+					"description": "Nova data no formato YYYY-MM-DD",
+				},
+				"new_time": map[string]any{
+					"type":        "string",
+					"description": "Novo horário no formato HH:MM",
+				},
+			},
+			"required": []string{"appointment_id", "new_date", "new_time"},
+		},
+	},
+}
+
 // ============================================================================
 // ESTRUTURAS DE DADOS
 // ============================================================================
@@ -111,14 +239,101 @@ type ClientRegisterResponse struct {
 	ErrorCode string `json:"error_code,omitempty"`
 }
 
+// AppointmentRequest representa os dados necessários para criar um agendamento
+type AppointmentRequest struct {
+	ClientID  string `json:"client_id"`
+	ServiceID string `json:"service_id"`
+	Date      string `json:"date"` // formato: "2025-06-12"
+	Time      string `json:"time"` // formato: "14:30"
+}
+
+// AppointmentResponse representa a resposta do agendamento
+type AppointmentResponse struct {
+	AppointmentID string `json:"appointment_id"`
+	Status        string `json:"status"`
+	Message       string `json:"message"`
+}
+
+type AvailableSlotsRequest struct {
+	ServiceID string `json:"service_id"`
+	Date      string `json:"date"` // formato: "2025-06-13"
+}
+
+type AvailableSlot struct {
+	Time     string `json:"time"`     // ex: "09:00"
+	Duration int    `json:"duration"` // duração em minutos
+}
+
+type AvailableSlotsResponse struct {
+	ServiceID string          `json:"service_id"`
+	Date      string          `json:"date"`
+	Slots     []AvailableSlot `json:"slots"`
+}
+
+type ClientCheckRequest struct {
+	PhoneNumber string `json:"phone_number"`
+}
+
+type ClientCheckResponse struct {
+	Exists     bool   `json:"exists"`
+	ClientID   string `json:"client_id,omitempty"`
+	ClientName string `json:"client_name,omitempty"`
+}
+
+type ClientAppointmentsRequest struct {
+	ClientID string `json:"client_id"`
+}
+
+type AppointmentItem struct {
+	AppointmentID string `json:"appointment_id"`
+	ServiceID     string `json:"service_id"`
+	Date          string `json:"date"`  // YYYY-MM-DD
+	Time          string `json:"time"`  // HH:MM
+	Status        string `json:"status"`
+}
+
+type ClientAppointmentsResponse struct {
+	ClientID     string            `json:"client_id"`
+	Appointments []AppointmentItem `json:"appointments"`
+}
+
+type CancelAppointmentRequest struct {
+	AppointmentID string `json:"appointment_id"`
+}
+
+type CancelAppointmentResponse struct {
+	AppointmentID string `json:"appointment_id"`
+	Status        string `json:"status"`  // e.g. "cancelled" ou "error"
+	Message       string `json:"message"` // detalhe em caso de erro
+}
+
+type RescheduleAppointmentRequest struct {
+	AppointmentID string `json:"appointment_id"`
+	NewDate       string `json:"new_date"`
+	NewTime       string `json:"new_time"`
+}
+
+type RescheduleAppointmentResponse struct {
+	AppointmentID string `json:"appointment_id"`
+	Status        string `json:"status"`  // e.g. "rescheduled" ou "error"
+	Message       string `json:"message"` // detalhes em caso de erro
+}
+
 // ============================================================================
 // CONFIGURAÇÃO E UTILITÁRIOS
 // ============================================================================
 
+// Atualizar a função getAllTools() para incluir todas as tools
 func getAllTools() []openai.ChatCompletionToolParam {
 	return []openai.ChatCompletionToolParam{
 		checkServicesTool,
 		registerClientTool,
+		checkClientTool,
+		fazerAgendamentoTool,
+		verificarHorariosDisponiveisTool,
+		agendamentosClienteTool,
+		cancelarAgendamentoTool,
+		reagendarServicoTool,
 	}
 }
 
@@ -142,6 +357,18 @@ func (c *Client) handleToolCalls(
 			response, success = c.processCheckServicesTool(ctx, userID, toolCall)
 		case "register_client":
 			response, success = c.processRegisterClientTool(ctx, userID, toolCall)
+		case "check_cliente":
+			response, success = c.processCheckClientTool(ctx, userID, toolCall)
+		case "fazer_agendamento":
+			response, success = c.processFazerAgendamentoTool(ctx, userID, toolCall)
+		case "verificar_horarios_disponiveis":
+			response, success = c.processVerificarHorarioDisponivelTool(ctx, userID, toolCall)
+		case "agendamentos_cliente":
+			response, success = c.processAgendamentoClienteTool(ctx, userID, toolCall)
+		case "cancelar_agendamento":
+			response, success = c.processCancelarAgendamentoTool(ctx, userID, toolCall)
+		case "reagendar_servico":
+			response, success = c.processReagendarServicoTool(ctx, userID, toolCall)
 		default:
 			response = openai.ToolMessage(
 				fmt.Sprintf("Ferramenta '%s' não reconhecida", toolCall.Function.Name),
@@ -451,7 +678,7 @@ func (c *Client) cadastrarClienteAPI(ctx context.Context, request ClientRegister
 		"telefones": []map[string]interface{}{
 			{
 				"ddd":      ddd,
-				"telefone": numero,
+				"numero": numero,
 				"tipoId":   3, // Tipo 3 = Celular
 			},
 		},
@@ -489,6 +716,525 @@ func (c *Client) cadastrarClienteAPI(ctx context.Context, request ClientRegister
 
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("erro ao decodificar resposta: %w", err)
+	}
+
+	return &response.Data, nil
+}
+
+// ============================================================================
+// FUNCIONALIDADE: CONSULTA DE CLIENTE
+// ============================================================================
+
+func (c *Client) processCheckClientTool(
+	ctx context.Context,
+	userID string,
+	toolCall openai.ChatCompletionMessageToolCall,
+) (openai.ChatCompletionMessageParamUnion, bool) {
+	var request ClientCheckRequest
+	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao interpretar argumentos de check_cliente")
+		return openai.ToolMessage("Erro ao interpretar parâmetros de consulta de cliente", toolCall.ID), false
+	}
+
+	log.Info().Str("user_id", userID).Str("phone_number", request.PhoneNumber).Msg("Processando consulta de cliente")
+
+	response, err := c.fetchClientFromAPI(ctx, request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao buscar cliente")
+		return openai.ToolMessage("Erro ao consultar cliente", toolCall.ID), false
+	}
+
+	respJSON, err := json.Marshal(response)
+	if err != nil {
+		log.Error().Err(err).Msg("Erro ao serializar resposta de consulta de cliente")
+		return openai.ToolMessage("Erro ao processar resposta de cliente", toolCall.ID), false
+	}
+
+	return openai.ToolMessage(string(respJSON), toolCall.ID), true
+}
+
+func (c *Client) fetchClientFromAPI(ctx context.Context, request ClientCheckRequest) (*ClientCheckResponse, error) {
+	config := trinks.LoadTrinksConfig() // Usando função do utils.go
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Usando função LimparTelefone do utils.go
+	ddd, numero := trinks.LimparTelefone(request.PhoneNumber)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/clientes?ddd=%s&telefone=%s", config.BaseURL, ddd, numero), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Usando GetHeaders() do utils.go
+	for key, value := range config.GetHeaders() {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var apiResponse struct {
+		Data []struct {
+			ID                 interface{} `json:"id"`
+			Nome               string      `json:"nome"`
+			Email              string      `json:"email"`
+			Telefones          []struct {
+				DDD      string `json:"ddd"`
+				Telefone string `json:"telefone"`
+			} `json:"telefones"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+		return nil, err
+	}
+
+	if len(apiResponse.Data) == 0 {
+		return &ClientCheckResponse{Exists: false}, nil
+	}
+
+	clientData := apiResponse.Data[0]
+
+	var idStr string
+	switch id := clientData.ID.(type) {
+	case string:
+		idStr = id
+	case float64:
+		idStr = fmt.Sprintf("%.0f", id)
+	case int:
+		idStr = fmt.Sprintf("%d", id)
+	default:
+		idStr = fmt.Sprintf("%v", id)
+	}
+
+	return &ClientCheckResponse{
+		Exists:     true,
+		ClientID:   idStr,
+		ClientName: clientData.Nome,
+	}, nil
+}
+
+// ============================================================================
+// FUNCIONALIDADE: AGENDAMENTO
+// ============================================================================
+
+func (c *Client) processFazerAgendamentoTool(
+	ctx context.Context,
+	userID string,
+	toolCall openai.ChatCompletionMessageToolCall,
+) (openai.ChatCompletionMessageParamUnion, bool) {
+	var request AppointmentRequest
+	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao interpretar argumentos de fazer_agendamento")
+		return openai.ToolMessage("Erro ao interpretar parâmetros de agendamento", toolCall.ID), false
+	}
+
+	log.Info().Str("user_id", userID).Str("client_id", request.ClientID).Str("service_id", request.ServiceID).Msg("Processando agendamento")
+
+	// Chamar função para criar agendamento
+	agendamento, err := c.criarAgendamentoAPI(ctx, request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao criar agendamento")
+		return openai.ToolMessage("Erro ao criar agendamento", toolCall.ID), false
+	}
+
+	response := AppointmentResponse{
+		AppointmentID: agendamento.ID,
+		Status:        "agendado",
+		Message:       fmt.Sprintf("Agendamento criado com sucesso! ID: %s", agendamento.ID),
+	}
+
+	respJSON, err := json.Marshal(response)
+	if err != nil {
+		log.Error().Err(err).Msg("Erro ao serializar resposta de agendamento")
+		return openai.ToolMessage("Agendamento criado, mas erro ao processar resposta", toolCall.ID), true
+	}
+
+	return openai.ToolMessage(string(respJSON), toolCall.ID), true
+}
+
+func (c *Client) criarAgendamentoAPI(ctx context.Context, request AppointmentRequest) (*trinks.Agendamento, error) {
+	config := trinks.LoadTrinksConfig() // Usando função do utils.go
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	// Montar payload para criação do agendamento
+	payload := map[string]interface{}{
+		"clienteId": request.ClientID,
+		"servicoId": request.ServiceID,
+		"data":      request.Date,
+		"hora":      request.Time,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao codificar dados do agendamento: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", config.BaseURL+"/agendamentos", strings.NewReader(string(jsonData)))
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar requisição de agendamento: %w", err)
+	}
+
+	// Usando GetHeaders() do utils.go
+	for key, value := range config.GetHeaders() {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("erro na requisição de agendamento: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 201 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("erro da API ao criar agendamento (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var response struct {
+		Data trinks.Agendamento `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("erro ao decodificar resposta de agendamento: %w", err)
+	}
+
+	return &response.Data, nil
+}
+
+func (c *Client) processVerificarHorarioDisponivelTool(
+	ctx context.Context,
+	userID string,
+	toolCall openai.ChatCompletionMessageToolCall,
+) (openai.ChatCompletionMessageParamUnion, bool) {
+	var request AvailableSlotsRequest
+	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao interpretar argumentos de verificar_horarios_disponiveis")
+		return openai.ToolMessage("Erro ao interpretar parâmetros de verificação de horários", toolCall.ID), false
+	}
+
+	log.Info().Str("user_id", userID).Str("service_id", request.ServiceID).Str("date", request.Date).Msg("Verificando horários disponíveis")
+
+	// Chamar função para verificar horários disponíveis
+	disponibilidade, err := c.verificarDisponibilidadeAPI(ctx, request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao verificar disponibilidade")
+		return openai.ToolMessage("Erro ao verificar horários disponíveis", toolCall.ID), false
+	}
+
+	response := AvailableSlotsResponse{
+		ServiceID: request.ServiceID,
+		Date:      request.Date,
+		Slots:     disponibilidade,
+	}
+
+	respJSON, err := json.Marshal(response)
+	if err != nil {
+		log.Error().Err(err).Msg("Erro ao serializar resposta de horários disponíveis")
+		return openai.ToolMessage("Erro ao processar resposta de horários disponíveis", toolCall.ID), false
+	}
+
+	return openai.ToolMessage(string(respJSON), toolCall.ID), true
+}
+
+func (c *Client) verificarDisponibilidadeAPI(ctx context.Context, request AvailableSlotsRequest) ([]AvailableSlot, error) {
+	config := trinks.LoadTrinksConfig() // Usando função do utils.go
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/agendamentos/disponibilidade?servicoId=%s&data=%s", config.BaseURL, request.ServiceID, request.Date), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Usando GetHeaders() do utils.go
+	for key, value := range config.GetHeaders() {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var apiResponse struct {
+		Data []struct {
+			Hora     string `json:"hora"`
+			Duracao  int    `json:"duracao"`
+			Disponivel bool   `json:"disponivel"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+		return nil, err
+	}
+
+	var slots []AvailableSlot
+	for _, slot := range apiResponse.Data {
+		if slot.Disponivel {
+			slots = append(slots, AvailableSlot{
+				Time:     slot.Hora,
+				Duration: slot.Duracao,
+			})
+		}
+	}
+
+	return slots, nil
+}
+
+func (c *Client) processAgendamentoClienteTool(
+	ctx context.Context,
+	userID string,
+	toolCall openai.ChatCompletionMessageToolCall,
+) (openai.ChatCompletionMessageParamUnion, bool) {
+	var request ClientAppointmentsRequest
+	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao interpretar argumentos de agendamentos_cliente")
+		return openai.ToolMessage("Erro ao interpretar parâmetros de consulta de agendamentos", toolCall.ID), false
+	}
+
+	log.Info().Str("user_id", userID).Str("client_id", request.ClientID).Msg("Consultando agendamentos do cliente")
+
+	// Chamar função para obter agendamentos do cliente
+	agendamentos, err := c.obterAgendamentosPorClienteAPI(ctx, request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao buscar agendamentos do cliente")
+		return openai.ToolMessage("Erro ao consultar agendamentos do cliente", toolCall.ID), false
+	}
+
+	response := ClientAppointmentsResponse{
+		ClientID:     request.ClientID,
+		Appointments: agendamentos,
+	}
+
+	respJSON, err := json.Marshal(response)
+	if err != nil {
+		log.Error().Err(err).Msg("Erro ao serializar resposta de agendamentos do cliente")
+		return openai.ToolMessage("Erro ao processar resposta de agendamentos do cliente", toolCall.ID), false
+	}
+
+	return openai.ToolMessage(string(respJSON), toolCall.ID), true
+}
+
+func (c *Client) obterAgendamentosPorClienteAPI(ctx context.Context, request ClientAppointmentsRequest) ([]AppointmentItem, error) {
+	config := trinks.LoadTrinksConfig() // Usando função do utils.go
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/agendamentos?clienteId=%s", config.BaseURL, request.ClientID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Usando GetHeaders() do utils.go
+	for key, value := range config.GetHeaders() {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var apiResponse struct {
+		Data []struct {
+			ID                 interface{} `json:"id"`
+			ServicoID          string      `json:"servicoId"`
+			ClienteID          string      `json:"clienteId"`
+			DataAgendamento    string      `json:"data"`
+			HoraAgendamento    string      `json:"hora"`
+			Status              string      `json:"status"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+		return nil, err
+	}
+
+	var agendamentos []AppointmentItem
+	for _, item := range apiResponse.Data {
+		var idStr string
+		switch id := item.ID.(type) {
+		case string:
+			idStr = id
+		case float64:
+			idStr = fmt.Sprintf("%.0f", id)
+		case int:
+			idStr = fmt.Sprintf("%d", id)
+		default:
+			idStr = fmt.Sprintf("%v", id)
+		}
+
+		agendamentos = append(agendamentos, AppointmentItem{
+			AppointmentID: idStr,
+			ServiceID:     item.ServicoID,
+			ClienteID:     item.ClienteID,
+			Date:          item.DataAgendamento,
+			Time:          item.HoraAgendamento,
+			Status:        item.Status,
+		})
+	}
+
+	return agendamentos, nil
+}
+
+func (c *Client) processCancelarAgendamentoTool(
+	ctx context.Context,
+	userID string,
+	toolCall openai.ChatCompletionMessageToolCall,
+) (openai.ChatCompletionMessageParamUnion, bool) {
+	var request CancelAppointmentRequest
+	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao interpretar argumentos de cancelar_agendamento")
+		return openai.ToolMessage("Erro ao interpretar parâmetros de cancelamento de agendamento", toolCall.ID), false
+	}
+
+	log.Info().Str("user_id", userID).Str("appointment_id", request.AppointmentID).Msg("Cancelando agendamento")
+
+	// Chamar função para cancelar agendamento
+	resposta, err := c.cancelarAgendamentoAPI(ctx, request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao cancelar agendamento")
+		return openai.ToolMessage("Erro ao cancelar agendamento", toolCall.ID), false
+	}
+
+	response := CancelAppointmentResponse{
+		AppointmentID: resposta.AppointmentID,
+		Status:        "cancelled",
+		Message:       "Agendamento cancelado com sucesso",
+	}
+
+	respJSON, err := json.Marshal(response)
+	if err != nil {
+		log.Error().Err(err).Msg("Erro ao serializar resposta de cancelamento de agendamento")
+		return openai.ToolMessage("Agendamento cancelado, mas erro ao processar resposta", toolCall.ID), true
+	}
+
+	return openai.ToolMessage(string(respJSON), toolCall.ID), true
+}
+
+func (c *Client) cancelarAgendamentoAPI(ctx context.Context, request CancelAppointmentRequest) (*trinks.Cancelamento, error) {
+	config := trinks.LoadTrinksConfig() // Usando função do utils.go
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", fmt.Sprintf("%s/agendamentos/%s", config.BaseURL, request.AppointmentID), nil)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar requisição de cancelamento: %w", err)
+	}
+
+	// Usando GetHeaders() do utils.go
+	for key, value := range config.GetHeaders() {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("erro na requisição de cancelamento: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("erro da API ao cancelar agendamento (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var response struct {
+		Data trinks.Cancelamento `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("erro ao decodificar resposta de cancelamento: %w", err)
+	}
+
+	return &response.Data, nil
+}
+
+func (c *Client) processReagendarServicoTool(
+	ctx context.Context,
+	userID string,
+	toolCall openai.ChatCompletionMessageToolCall,
+) (openai.ChatCompletionMessageParamUnion, bool) {
+	var request RescheduleAppointmentRequest
+	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao interpretar argumentos de reagendar_servico")
+		return openai.ToolMessage("Erro ao interpretar parâmetros de reagendamento", toolCall.ID), false
+	}
+
+	log.Info().Str("user_id", userID).Str("appointment_id", request.AppointmentID).Str("new_date", request.NewDate).Str("new_time", request.NewTime).Msg("Reagendando serviço")
+
+	// Chamar função para reagendar serviço
+	resposta, err := c.reagendarServicoAPI(ctx, request)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao reagendar serviço")
+		return openai.ToolMessage("Erro ao reagendar serviço", toolCall.ID), false
+	}
+
+	response := RescheduleAppointmentResponse{
+		AppointmentID: resposta.AppointmentID,
+		Status:        "rescheduled",
+		Message:       "Serviço reagendado com sucesso",
+	}
+
+	respJSON, err := json.Marshal(response)
+	if err != nil {
+		log.Error().Err(err).Msg("Erro ao serializar resposta de reagendamento")
+		return openai.ToolMessage("Serviço reagendado, mas erro ao processar resposta", toolCall.ID), true
+	}
+
+	return openai.ToolMessage(string(respJSON), toolCall.ID), true
+}
+
+func (c *Client) reagendarServicoAPI(ctx context.Context, request RescheduleAppointmentRequest) (*trinks.Agendamento, error) {
+	config := trinks.LoadTrinksConfig() // Usando função do utils.go
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	// Montar payload para atualização do agendamento
+	payload := map[string]interface{}{
+		"novaData": request.NewDate,
+		"novoHorario": request.NewTime,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao codificar dados de reagendamento: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PATCH", fmt.Sprintf("%s/agendamentos/%s", config.BaseURL, request.AppointmentID), strings.NewReader(string(jsonData)))
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar requisição de reagendamento: %w", err)
+	}
+
+	// Usando GetHeaders() do utils.go
+	for key, value := range config.GetHeaders() {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("erro na requisição de reagendamento: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("erro da API ao reagendar serviço (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var response struct {
+		Data trinks.Agendamento `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("erro ao decodificar resposta de reagendamento: %w", err)
 	}
 
 	return &response.Data, nil
