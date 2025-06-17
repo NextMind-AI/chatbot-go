@@ -60,7 +60,7 @@ type ProfissionalCadastrado struct {
 // ============================================================================
 
 // CriarAgendamento cria um novo agendamento
-func CriarAgendamento(ctx context.Context, clientID, serviceID, date, time string) (*Agendamento, error) {
+func CriarAgendamento(ctx context.Context, clientID, serviceID, date, timeStr string) (*Agendamento, error) {
     config := LoadTrinksConfig()
     client := &http.Client{Timeout: 15 * time.Second}
 
@@ -68,7 +68,7 @@ func CriarAgendamento(ctx context.Context, clientID, serviceID, date, time strin
         "clienteId": clientID,
         "servicoId": serviceID,
         "data":      date,
-        "hora":      time,
+        "hora":      timeStr,
     }
 
     jsonData, err := json.Marshal(payload)
