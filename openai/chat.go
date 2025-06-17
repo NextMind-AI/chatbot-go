@@ -47,10 +47,12 @@ func (c *Client) ProcessChatWithTools(
 	if len(toolCalls) > 0 {
 		messages = append(messages, chatCompletion.Choices[0].Message.ToParam())
 
-		messages, err = c.handleToolCalls(ctx, userID, messages, toolCalls)
+		toolResponses, err := c.handleToolCalls(ctx, userID, toolCalls)
 		if err != nil {
 			return "", err
 		}
+
+		messages = append(messages, toolResponses...)
 
 		return c.ProcessChat(ctx, messages)
 	}

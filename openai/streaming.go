@@ -102,7 +102,7 @@ func (c *Client) processToolsIfNeeded(
 	if len(toolCalls) > 0 {
 		messages = append(messages, chatCompletion.Choices[0].Message.ToParam())
 
-		messages, err = c.handleToolCalls(ctx, userID, messages, toolCalls)
+		messages, err = c.handleToolCalls(ctx, userID, toolCalls)
 		if err != nil {
 			return messages, err
 		}

@@ -130,7 +130,7 @@ func (c *Client) handleToolCalls(
 	ctx context.Context,
 	userID string,
 	toolCalls []openai.ChatCompletionMessageToolCall,
-) []openai.ChatCompletionMessageParamUnion {
+) ([]openai.ChatCompletionMessageParamUnion, error) {
 	var responses []openai.ChatCompletionMessageParamUnion
 
 	for _, toolCall := range toolCalls {
@@ -148,6 +148,10 @@ func (c *Client) handleToolCalls(
 				toolCall.ID,
 			)
 			success = false
+			log.Error().
+				Str("user_id", userID).
+				Str("tool_name", toolCall.Function.Name).
+				Msg("Tool não reconhecida")
 		}
 
 		if success {
@@ -155,12 +159,21 @@ func (c *Client) handleToolCalls(
 				Str("user_id", userID).
 				Str("tool", toolCall.Function.Name).
 				Msg("Tool executada com sucesso")
+		} else {
+			log.Warn().
+				Str("user_id", userID).
+				Str("tool", toolCall.Function.Name).
+				Msg("Falha na execução da tool")
 		}
 
 		responses = append(responses, response)
 	}
 
-	return responses
+	if len(responses) == 0 {
+		return nil, fmt.Errorf("nenhuma resposta de tool foi gerada")
+	}
+
+	return responses, nil
 }
 
 // ============================================================================
