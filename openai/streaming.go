@@ -169,7 +169,7 @@ func (c *Client) sendMessagesSequentially(
 
 		if !isFirstMessage {
 			select {
-			case <-time.After(200 * time.Millisecond):
+			case <-time.After(500 * time.Millisecond):
 			case <-ctx.Done():
 				log.Info().
 					Str("user_id", config.userID).
