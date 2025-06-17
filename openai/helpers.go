@@ -35,7 +35,7 @@ func (c *Client) createChatCompletionWithTools(
 		openai.ChatCompletionNewParams{
 			Messages: messages,
 			Model:    openai.ChatModelGPT4_1Mini,
-			Tools:    []openai.ChatCompletionToolParam{checkServicesTool},
+			Tools:    getAllTools(), // CORRIGIR: usar getAllTools() ao invés de []openai.ChatCompletionToolParam{checkServicesTool}
 		},
 	)
 }
