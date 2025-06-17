@@ -60,9 +60,7 @@ type ClientRegisterResponse struct {
 }
 
 // Verificação de cliente
-type ClientCheckRequest struct {
-    PhoneNumber string `json:"phone_number"`
-}
+
 
 type ClientCheckResponse struct {
     Exists     bool   `json:"exists"`
@@ -84,23 +82,6 @@ type AppointmentResponse struct {
     Message       string `json:"message"`
 }
 
-// Horários disponíveis
-type VerificarHorariosRequest struct {
-    Date              string `json:"date"`
-    ProfissionalID    string `json:"profissional_id,omitempty"`
-    HorarioEspecifico string `json:"horario_especifico,omitempty"`
-}
-
-type DisponibilidadeResponse struct {
-    Date                     string              `json:"date"`
-    ProfissionalID           string              `json:"profissional_id,omitempty"`
-    HorarioEspecifico        string              `json:"horario_especifico,omitempty"`
-    DisponibilidadeGeral     map[string][]string `json:"disponibilidade_geral,omitempty"`
-    ProfissionaisDisponiveis []string            `json:"profissionais_disponiveis,omitempty"`
-    HorarioDisponivel        bool                `json:"horario_disponivel,omitempty"`
-    Message                  string              `json:"message"`
-    TipoConsulta             string              `json:"tipo_consulta"`
-}
 
 // Agendamentos do cliente
 type ClientAppointmentsRequest struct {
@@ -324,16 +305,16 @@ func (c *Client) processCheckClientTool(
     userID string,
     toolCall openai.ChatCompletionMessageToolCall,
 ) (openai.ChatCompletionMessageParamUnion, bool) {
-    var request ClientCheckRequest
+    var request trinks.ClientCheckRequest // USAR trinks.ClientCheckRequest
     err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
     if err != nil {
         log.Error().Err(err).Str("user_id", userID).Msg("Erro ao interpretar argumentos de check_cliente")
         return openai.ToolMessage("Erro ao interpretar parâmetros de consulta de cliente", toolCall.ID), false
     }
 
-    log.Info().Str("user_id", userID).Str("phone_number", request.PhoneNumber).Msg("Processando consulta de cliente")
+    log.Info().Str("user_id", userID).Str("email", request.Email).Msg("Processando consulta de cliente")
 
-    response, err := trinks.BuscarClientePorTelefone(ctx, request.PhoneNumber)
+    response, err := trinks.BuscarClientePorEmailResponse(ctx, request.Email)
     if err != nil {
         log.Error().Err(err).Str("user_id", userID).Msg("Erro ao buscar cliente")
         return openai.ToolMessage("Erro ao consultar cliente", toolCall.ID), false
@@ -388,7 +369,7 @@ func (c *Client) processVerificarHorarioDisponivelTool(
     userID string,
     toolCall openai.ChatCompletionMessageToolCall,
 ) (openai.ChatCompletionMessageParamUnion, bool) {
-    var request VerificarHorariosRequest
+    var request trinks.VerificarHorariosRequest // USAR trinks.VerificarHorariosRequest
     err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
     if err != nil {
         log.Error().Err(err).Str("user_id", userID).Msg("Erro ao interpretar argumentos de verificar_horarios_disponiveis")
@@ -411,6 +392,8 @@ func (c *Client) processVerificarHorarioDisponivelTool(
 
     return openai.ToolMessage(string(respJSON), toolCall.ID), true
 }
+
+// ...existing code...
 
 func (c *Client) processAgendamentoClienteTool(
     ctx context.Context,

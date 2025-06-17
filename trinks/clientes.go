@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv" // ADICIONAR esta linha
 	"strings"
 	"time"
 )
@@ -136,4 +137,20 @@ func CadastrarCliente(ctx context.Context, name, email, ddd, phone string) (*Cli
     }
 
     return &response.Data, nil
+}
+
+// BuscarClientePorEmailResponse busca cliente por e-mail e retorna resposta formatada
+func BuscarClientePorEmailResponse(ctx context.Context, email string) (*ClientCheckResponse, error) {
+    cliente, err := BuscarClientePorEmail(ctx, email)
+    if err != nil {
+        return &ClientCheckResponse{
+            Exists: false,
+        }, nil
+    }
+
+    return &ClientCheckResponse{
+        Exists:     true,
+        ClientID:   strconv.Itoa(cliente.ID),
+        ClientName: cliente.Nome,
+    }, nil
 }

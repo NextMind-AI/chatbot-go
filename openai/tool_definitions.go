@@ -43,12 +43,16 @@ var registerClientTool = openai.ChatCompletionToolParam{
                     "type":        "string",
                     "description": "E-mail do cliente (deve ser único)",
                 },
+                "ddd": map[string]any{
+                    "type":        "string",
+                    "description": "DDD do telefone (ex: 63)",
+                },
                 "phone": map[string]any{
                     "type":        "string",
                     "description": "Número do telefone sem DDD (ex: 991234567)",
                 },
             },
-            "required": []string{"name", "email", "phone"},
+            "required": []string{"name", "email", "ddd", "phone"},
         },
     },
 }
@@ -56,16 +60,16 @@ var registerClientTool = openai.ChatCompletionToolParam{
 var checkClientTool = openai.ChatCompletionToolParam{
     Function: openai.FunctionDefinitionParam{
         Name:        "check_cliente",
-        Description: openai.String("Verifica se o cliente existe com base no número de telefone."),
+        Description: openai.String("Verifica se o cliente existe com base no e-mail."),
         Parameters: openai.FunctionParameters{
             "type": "object",
             "properties": map[string]any{
-                "phone_number": map[string]any{
+                "email": map[string]any{
                     "type":        "string",
-                    "description": "Número de telefone do cliente no formato DDD+Número (ex: 11999998888)",
+                    "description": "E-mail do cliente para verificar se existe",
                 },
             },
-            "required": []string{"phone_number"},
+            "required": []string{"email"},
         },
     },
 }

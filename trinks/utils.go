@@ -79,6 +79,27 @@ type StatusAgendamento struct {
     Nome string `json:"nome"`
 }
 
+type ClientCheckRequest struct {
+    Email string `json:"email"`
+}
+
+type VerificarHorariosRequest struct {
+    Date               string `json:"date"`
+    ProfissionalID     string `json:"profissional_id,omitempty"`
+    HorarioEspecifico  string `json:"horario_especifico,omitempty"`
+}
+
+type DisponibilidadeResponse struct {
+    Date                     string              `json:"date"`
+    ProfissionalID           string              `json:"profissional_id,omitempty"`
+    HorarioEspecifico        string              `json:"horario_especifico,omitempty"`
+    DisponibilidadeGeral     map[string][]string `json:"disponibilidade_geral,omitempty"`
+    ProfissionaisDisponiveis []string            `json:"profissionais_disponiveis,omitempty"`
+    HorarioDisponivel        bool                `json:"horario_disponivel,omitempty"`
+    Message                  string              `json:"message"`
+    TipoConsulta             string              `json:"tipo_consulta"`
+}
+
 // ============================================================================
 // FUNÇÕES UTILITÁRIAS PRINCIPAIS
 // ============================================================================
@@ -358,3 +379,4 @@ func LogError(err error, userID, funcao string) {
         Str("funcao", funcao).
         Msg("Erro na função utilitária")
 }
+
