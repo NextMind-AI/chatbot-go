@@ -9,13 +9,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // ============================================================================
 // ESTRUTURAS PARA AGENDAMENTOS
 // ============================================================================
 
-type DisponibilidadeResponse struct {
+// AgendamentoDisponibilidadeResponse representa a resposta de disponibilidade para agendamentos
+type AgendamentoDisponibilidadeResponse struct {
     Date                     string              `json:"date"`
     ProfissionalID           string              `json:"profissional_id,omitempty"`
     HorarioEspecifico        string              `json:"horario_especifico,omitempty"`
@@ -24,6 +27,13 @@ type DisponibilidadeResponse struct {
     HorarioDisponivel        bool                `json:"horario_disponivel,omitempty"`
     Message                  string              `json:"message"`
     TipoConsulta             string              `json:"tipo_consulta"`
+}
+
+type ProfissionalCadastrado struct {
+    ID      int    `json:"id"`
+    Nome    string `json:"nome"`
+    CPF     string `json:"cpf"`
+    Apelido string `json:"apelido"`
 }
 
 // Lista estática de profissionais
@@ -46,13 +56,6 @@ var PROFISSIONAIS_CADASTRADOS = []ProfissionalCadastrado{
         CPF:     "05095178117",
         Apelido: "Yuri Waner",
     },
-}
-
-type ProfissionalCadastrado struct {
-    ID      int    `json:"id"`
-    Nome    string `json:"nome"`
-    CPF     string `json:"cpf"`
-    Apelido string `json:"apelido"`
 }
 
 // ============================================================================
@@ -183,7 +186,7 @@ func ReagendarServico(ctx context.Context, appointmentID, newDate, newTime strin
 }
 
 // VerificarDisponibilidade verifica horários disponíveis seguindo a lógica Python
-func VerificarDisponibilidade(ctx context.Context, date, profissionalID, horarioEspecifico string) (*DisponibilidadeResponse, error) {
+func VerificarDisponibilidade(ctx context.Context, date, profissionalID, horarioEspecifico string) (*AgendamentoDisponibilidadeResponse, error) {
     // Buscar todos os agendamentos
     agendamentos, err := buscarTodosAgendamentos(ctx)
     if err != nil {
@@ -203,7 +206,7 @@ func VerificarDisponibilidade(ctx context.Context, date, profissionalID, horario
             }
         }
         if len(profissionaisAVerificar) == 0 {
-            return &DisponibilidadeResponse{
+            return &AgendamentoDisponibilidadeResponse{
                 Date:         date,
                 Message:      fmt.Sprintf("Profissional com ID %s não encontrado", profissionalID),
                 TipoConsulta: "erro",
@@ -217,7 +220,7 @@ func VerificarDisponibilidade(ctx context.Context, date, profissionalID, horario
     disponibilidadeGeral := calcularDisponibilidadeGeral(date, agendamentos, profissionaisAVerificar)
 
     // Processar resposta baseada no tipo de consulta
-    response := &DisponibilidadeResponse{
+    response := &AgendamentoDisponibilidadeResponse{
         Date:                 date,
         ProfissionalID:       profissionalID,
         HorarioEspecifico:    horarioEspecifico,
@@ -274,7 +277,135 @@ func VerificarDisponibilidade(ctx context.Context, date, profissionalID, horario
     return response, nil
 }
 
-// Funções auxiliares
+// AgendarServicosSequenciais agenda uma sequência de serviços para um cliente
+func AgendarServicosSequenciais(ctx context.Context, emailCliente string, idsServicos []string, profissionalID, dataHoraInicio string) ([]Agendamento, error) {
+    log.Info().
+        Str("email_cliente", emailCliente).
+        Strs("ids_servicos", idsServicos).
+        Str("profissional_id", profissionalID).
+        Str("data_hora_inicio", dataHoraInicio).
+        Msg("🗓️ Iniciando agendamento sequencial")
+
+    // 1. Buscar cliente por e-mail
+    cliente, err := BuscarClientePorEmail(ctx, emailCliente)
+    if err != nil {
+        return nil, fmt.Errorf("💡 Cliente não encontrado. Realize o cadastro primeiro")
+    }
+
+    // 2. Converter IDs de string para int
+    var idsInt []int
+    for _, idStr := range idsServicos {
+        id, err := strconv.Atoi(idStr)
+        if err != nil {
+            return nil, fmt.Errorf("ID de serviço inválido: %s", idStr)
+        }
+        idsInt = append(idsInt, id)
+    }
+
+    // 3. Buscar serviços por IDs
+    servicos, err := BuscarServicosPorIDs(ctx, idsInt)
+    if err != nil || len(servicos) == 0 {
+        return nil, fmt.Errorf("❌ Nenhum serviço válido encontrado com os IDs fornecidos")
+    }
+
+    // 4. Parse do horário inicial
+    horarioAtual, err := time.Parse("2006-01-02T15:04:05", dataHoraInicio)
+    if err != nil {
+        return nil, fmt.Errorf("formato de data/hora inválido: %s", dataHoraInicio)
+    }
+
+    // 5. Agendar cada serviço sequencialmente
+    var agendamentosFeitos []Agendamento
+    config := LoadTrinksConfig()
+    httpClient := &http.Client{Timeout: 15 * time.Second}
+
+    profissionalIDInt, err := strconv.Atoi(profissionalID)
+    if err != nil {
+        return nil, fmt.Errorf("ID do profissional inválido: %s", profissionalID)
+    }
+
+    for _, servico := range servicos {
+        log.Info().
+            Str("servico_nome", servico.Nome).
+            Str("horario", horarioAtual.Format("15:04")).
+            Msg("Agendando serviço")
+
+        payload := map[string]interface{}{
+            "servicoId":        servico.ID,
+            "clienteId":        cliente.ID,
+            "profissionalId":   profissionalIDInt,
+            "dataHoraInicio":   horarioAtual.Format("2006-01-02T15:04:05"),
+            "duracaoEmMinutos": servico.DuracaoEmMinutos,
+            "valor":            servico.Preco,
+        }
+
+        jsonData, err := json.Marshal(payload)
+        if err != nil {
+            log.Error().Err(err).Msg("Erro ao codificar payload")
+            break
+        }
+
+        req, err := http.NewRequestWithContext(ctx, "POST", config.BaseURL+"/agendamentos", strings.NewReader(string(jsonData)))
+        if err != nil {
+            log.Error().Err(err).Msg("Erro ao criar requisição")
+            break
+        }
+
+        for key, value := range config.GetHeaders() {
+            req.Header.Set(key, value)
+        }
+
+        resp, err := httpClient.Do(req)
+        if err != nil {
+            log.Error().Err(err).Msg("Erro na requisição")
+            break
+        }
+
+        if resp.StatusCode == 201 {
+            log.Info().Msg("✅ Agendado com sucesso!")
+
+            var response struct {
+                Data Agendamento `json:"data"`
+            }
+
+            if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+                log.Error().Err(err).Msg("Erro ao decodificar resposta")
+                resp.Body.Close()
+                break
+            }
+
+            agendamentosFeitos = append(agendamentosFeitos, response.Data)
+
+            // Avançar horário para o próximo serviço
+            horarioAtual = horarioAtual.Add(time.Duration(servico.DuracaoEmMinutos) * time.Minute)
+
+            resp.Body.Close()
+        } else {
+            body, _ := io.ReadAll(resp.Body)
+            log.Error().
+                Int("status_code", resp.StatusCode).
+                Str("response_body", string(body)).
+                Msg("❌ Falha ao agendar - Processo interrompido")
+            resp.Body.Close()
+            break
+        }
+    }
+
+    if len(agendamentosFeitos) == 0 {
+        return nil, fmt.Errorf("nenhum agendamento foi realizado")
+    }
+
+    log.Info().
+        Int("total_agendados", len(agendamentosFeitos)).
+        Int("total_solicitados", len(servicos)).
+        Msg("Processo de agendamento concluído")
+
+    return agendamentosFeitos, nil
+}
+
+// ============================================================================
+// FUNÇÕES AUXILIARES
+// ============================================================================
 
 func buscarTodosAgendamentos(ctx context.Context) ([]struct {
     ID                 int                `json:"id"`

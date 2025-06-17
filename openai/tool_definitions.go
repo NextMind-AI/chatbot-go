@@ -77,28 +77,31 @@ var checkClientTool = openai.ChatCompletionToolParam{
 var fazerAgendamentoTool = openai.ChatCompletionToolParam{
     Function: openai.FunctionDefinitionParam{
         Name:        "fazer_agendamento",
-        Description: openai.String("Cria um novo agendamento para um cliente."),
+        Description: openai.String("Agenda uma sequência de serviços para um cliente em um determinado horário."),
         Parameters: openai.FunctionParameters{
             "type": "object",
             "properties": map[string]any{
-                "client_id": map[string]any{
+                "email_cliente": map[string]any{
                     "type":        "string",
-                    "description": "ID do cliente",
+                    "description": "E-mail do cliente",
                 },
-                "service_id": map[string]any{
-                    "type":        "string",
-                    "description": "ID do serviço a ser agendado",
+                "ids_servicos": map[string]any{
+                    "type":        "array",
+                    "description": "Lista de IDs dos serviços a agendar",
+                    "items": map[string]any{
+                        "type": "string",
+                    },
                 },
-                "date": map[string]any{
+                "profissional_id": map[string]any{
                     "type":        "string",
-                    "description": "Data do agendamento no formato YYYY-MM-DD",
+                    "description": "ID do profissional",
                 },
-                "time": map[string]any{
+                "data_hora_inicio": map[string]any{
                     "type":        "string",
-                    "description": "Horário do agendamento no formato HH:MM",
+                    "description": "Data e hora de início no formato YYYY-MM-DDTHH:MM:SS",
                 },
             },
-            "required": []string{"client_id", "service_id", "date", "time"},
+            "required": []string{"email_cliente", "ids_servicos", "profissional_id", "data_hora_inicio"},
         },
     },
 }

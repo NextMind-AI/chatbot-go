@@ -70,16 +70,24 @@ type ClientCheckResponse struct {
 
 // Agendamento
 type AppointmentRequest struct {
-    ClientID  string `json:"client_id"`
-    ServiceID string `json:"service_id"`
-    Date      string `json:"date"` // formato: "2025-06-12"
-    Time      string `json:"time"` // formato: "14:30"
+    EmailCliente    string   `json:"email_cliente"`
+    IdsServicos     []string `json:"ids_servicos"`
+    ProfissionalID  string   `json:"profissional_id"`
+    DataHoraInicio  string   `json:"data_hora_inicio"`
 }
 
 type AppointmentResponse struct {
+    Success            bool                      `json:"success"`
+    AgendamentosFeitos []AgendamentoResultado    `json:"agendamentos_feitos"`
+    Message            string                    `json:"message"`
+    ErrorCode          string                    `json:"error_code,omitempty"`
+}
+
+type AgendamentoResultado struct {
     AppointmentID string `json:"appointment_id"`
+    ServicoNome   string `json:"servico_nome"`
+    Horario       string `json:"horario"`
     Status        string `json:"status"`
-    Message       string `json:"message"`
 }
 
 
@@ -341,27 +349,67 @@ func (c *Client) processFazerAgendamentoTool(
         return openai.ToolMessage("Erro ao interpretar parâmetros de agendamento", toolCall.ID), false
     }
 
-    log.Info().Str("user_id", userID).Str("client_id", request.ClientID).Str("service_id", request.ServiceID).Msg("Processando agendamento")
+    log.Info().
+        Str("user_id", userID).
+        Str("email_cliente", request.EmailCliente).
+        Strs("ids_servicos", request.IdsServicos).
+        Str("profissional_id", request.ProfissionalID).
+        Str("data_hora_inicio", request.DataHoraInicio).
+        Msg("Processando agendamento sequencial")
 
-    agendamento, err := trinks.CriarAgendamento(ctx, request.ClientID, request.ServiceID, request.Date, request.Time)
+    agendamentos, err := trinks.AgendarServicosSequenciais(
+        ctx, 
+        request.EmailCliente, 
+        request.IdsServicos, 
+        request.ProfissionalID, 
+        request.DataHoraInicio,
+    )
     if err != nil {
-        log.Error().Err(err).Str("user_id", userID).Msg("Erro ao criar agendamento")
-        return openai.ToolMessage("Erro ao criar agendamento", toolCall.ID), false
+        log.Error().Err(err).Str("user_id", userID).Msg("Erro ao criar agendamentos")
+        
+        response := AppointmentResponse{
+            Success:   false,
+            Message:   err.Error(),
+            ErrorCode: "SCHEDULING_ERROR",
+        }
+        
+        respJSON, _ := json.Marshal(response)
+        return openai.ToolMessage(string(respJSON), toolCall.ID), false
+    }
+
+    // Converter resultados para formato de resposta
+    var resultados []AgendamentoResultado
+    for _, ag := range agendamentos {
+        resultados = append(resultados, AgendamentoResultado{
+            AppointmentID: strconv.Itoa(ag.ID),
+            ServicoNome:   ag.Servico.Nome,
+            Horario:       ag.DataHoraInicio,
+            Status:        "agendado",
+        })
     }
 
     response := AppointmentResponse{
-        AppointmentID: strconv.Itoa(agendamento.ID),
-        Status:        "agendado",
-        Message:       fmt.Sprintf("Agendamento criado com sucesso! ID: %d", agendamento.ID),
+        Success:            true,
+        AgendamentosFeitos: resultados,
+        Message:            fmt.Sprintf("✅ %d serviços agendados com sucesso!", len(agendamentos)),
     }
 
     respJSON, err := json.Marshal(response)
     if err != nil {
         log.Error().Err(err).Msg("Erro ao serializar resposta de agendamento")
-        return openai.ToolMessage("Agendamento criado, mas erro ao processar resposta", toolCall.ID), true
+        return openai.ToolMessage("Agendamentos criados, mas erro ao processar resposta", toolCall.ID), true
     }
 
     return openai.ToolMessage(string(respJSON), toolCall.ID), true
+}
+
+func extrairIDs(agendamentos []AgendamentoResultado) []int {
+    var ids []int
+    for _, a := range agendamentos {
+        id, _ := strconv.Atoi(a.AppointmentID)
+        ids = append(ids, id)
+    }
+    return ids
 }
 
 func (c *Client) processVerificarHorarioDisponivelTool(
@@ -392,8 +440,6 @@ func (c *Client) processVerificarHorarioDisponivelTool(
 
     return openai.ToolMessage(string(respJSON), toolCall.ID), true
 }
-
-// ...existing code...
 
 func (c *Client) processAgendamentoClienteTool(
     ctx context.Context,
