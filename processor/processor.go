@@ -77,7 +77,7 @@ func (mp *MessageProcessor) ProcessMessage(message InboundMessage) {
 		return
 	}
 
-	if err := mp.processWithAI(ctx, userID, chatHistory); err != nil {
+	if err := mp.processWithAI(ctx, userID, message.Profile.Name, chatHistory); err != nil {
 		if errors.Is(err, context.Canceled) {
 			log.Info().
 				Str("user_id", userID).

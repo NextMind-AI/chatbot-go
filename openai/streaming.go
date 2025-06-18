@@ -16,6 +16,7 @@ import (
 // streamingConfig holds the configuration for a streaming chat completion request.
 type streamingConfig struct {
 	userID           string
+	userName         string
 	chatHistory      []redis.ChatMessage
 	vonageClient     *vonage.Client
 	redisClient      *redis.Client
@@ -29,6 +30,7 @@ type streamingConfig struct {
 func (c *Client) ProcessChatStreaming(
 	ctx context.Context,
 	userID string,
+	userName string,
 	chatHistory []redis.ChatMessage,
 	vonageClient *vonage.Client,
 	redisClient *redis.Client,
@@ -37,6 +39,7 @@ func (c *Client) ProcessChatStreaming(
 ) error {
 	config := streamingConfig{
 		userID:           userID,
+		userName:         userName,
 		chatHistory:      chatHistory,
 		vonageClient:     vonageClient,
 		redisClient:      redisClient,
@@ -51,6 +54,7 @@ func (c *Client) ProcessChatStreaming(
 func (c *Client) ProcessChatStreamingWithTools(
 	ctx context.Context,
 	userID string,
+	userName string,
 	chatHistory []redis.ChatMessage,
 	vonageClient *vonage.Client,
 	redisClient *redis.Client,
@@ -59,6 +63,7 @@ func (c *Client) ProcessChatStreamingWithTools(
 ) error {
 	config := streamingConfig{
 		userID:           userID,
+		userName:         userName,
 		chatHistory:      chatHistory,
 		vonageClient:     vonageClient,
 		redisClient:      redisClient,
@@ -71,7 +76,7 @@ func (c *Client) ProcessChatStreamingWithTools(
 // processStreamingChat handles the core streaming logic.
 // Since tools are no longer used, this simply converts history and streams the response.
 func (c *Client) processStreamingChat(ctx context.Context, config streamingConfig) error {
-	messages := convertChatHistory(config.chatHistory)
+	messages := convertChatHistoryWithUserName(config.chatHistory, config.userName)
 	return c.streamResponse(ctx, config, messages)
 }
 

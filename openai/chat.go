@@ -33,6 +33,7 @@ func (c *Client) ProcessChat(
 func (c *Client) ProcessChatWithTools(
 	ctx context.Context,
 	userID string,
+	userName string,
 	chatHistory []redis.ChatMessage,
 ) (string, error) {
 	// Get the last user message
@@ -57,6 +58,6 @@ func (c *Client) ProcessChatWithTools(
 	}
 
 	// Step 3: Generate the actual response (without tools)
-	messages := convertChatHistory(chatHistory)
+	messages := convertChatHistoryWithUserName(chatHistory, userName)
 	return c.ProcessChat(ctx, messages)
 }
