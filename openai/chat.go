@@ -36,17 +36,8 @@ func (c *Client) ProcessChatWithTools(
 	userName string,
 	chatHistory []redis.ChatMessage,
 ) (string, error) {
-	// Get the last user message
-	var lastUserMessage string
-	for i := len(chatHistory) - 1; i >= 0; i-- {
-		if chatHistory[i].Role == "user" {
-			lastUserMessage = chatHistory[i].Content
-			break
-		}
-	}
-
-	// Step 1: Determine sleep time using the sleep analyzer
-	sleepSeconds, err := c.DetermineSleepTime(ctx, userID, lastUserMessage)
+	// Step 1: Determine sleep time using the sleep analyzer with full conversation context
+	sleepSeconds, err := c.DetermineSleepTime(ctx, userID, userName, chatHistory)
 	if err != nil {
 		// Log warning but continue without sleep
 		sleepSeconds = 0
