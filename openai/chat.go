@@ -58,6 +58,6 @@ func (c *Client) ProcessChatWithTools(
 	}
 
 	// Step 3: Generate the actual response (without tools)
-	messages := convertChatHistoryWithUserName(chatHistory, userName)
+	messages := convertChatHistoryWithUserName(chatHistory, userName, userID)
 	return c.ProcessChat(ctx, messages)
 }

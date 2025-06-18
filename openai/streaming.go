@@ -76,7 +76,7 @@ func (c *Client) ProcessChatStreamingWithTools(
 // processStreamingChat handles the core streaming logic.
 // Since tools are no longer used, this simply converts history and streams the response.
 func (c *Client) processStreamingChat(ctx context.Context, config streamingConfig) error {
-	messages := convertChatHistoryWithUserName(config.chatHistory, config.userName)
+	messages := convertChatHistoryWithUserName(config.chatHistory, config.userName, config.userID)
 	return c.streamResponse(ctx, config, messages)
 }
 

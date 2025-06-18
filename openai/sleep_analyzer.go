@@ -158,6 +158,6 @@ func (c *Client) ExecuteSleepAndRespond(
 	}
 
 	// Step 3: Generate the actual response using the main chatbot (without sleep tool)
-	messages := convertChatHistoryWithUserName(config.chatHistory, config.userName)
+	messages := convertChatHistoryWithUserName(config.chatHistory, config.userName, config.userID)
 	return c.streamResponse(ctx, config, messages)
 }
