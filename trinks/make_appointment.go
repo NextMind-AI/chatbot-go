@@ -12,10 +12,10 @@ import (
 
 // Estruturas necessárias
 type ServicoParaAgendar struct {
-	ID                string  `json:"id"`
-	Nome              string  `json:"nome"`
-	DuracaoEmMinutos  int     `json:"duracaoEmMinutos"`
-	Preco             float64 `json:"preco"`
+	ID               string  `json:"id"`
+	Nome             string  `json:"nome"`
+	DuracaoEmMinutos int     `json:"duracaoEmMinutos"`
+	Preco            float64 `json:"preco"`
 }
 
 type AgendamentoRealizado struct {
@@ -43,12 +43,12 @@ func AgendarServicos(ctx context.Context, clienteID, profissionalID, horarioInic
 	for _, servico := range listaServicos {
 		// Monta o payload para a API
 		payload := map[string]interface{}{
-			"servicoId":         servico.ID,
-			"clienteId":         clienteID,
-			"profissionalId":    profissionalID,
-			"dataHoraInicio":    horarioAtual.Format("2006-01-02T15:04:05"),
-			"duracaoEmMinutos":  servico.DuracaoEmMinutos,
-			"valor":             servico.Preco,
+			"servicoId":        servico.ID,
+			"clienteId":        clienteID,
+			"profissionalId":   profissionalID,
+			"dataHoraInicio":   horarioAtual.Format("2006-01-02T15:04:05"),
+			"duracaoEmMinutos": servico.DuracaoEmMinutos,
+			"valor":            servico.Preco,
 		}
 
 		fmt.Printf("  -> Tentando agendar '%s' para as %s...\n", servico.Nome, horarioAtual.Format("15:04"))
@@ -116,4 +116,3 @@ func AgendarServicos(ctx context.Context, clienteID, profissionalID, horarioInic
 	fmt.Println("\nResumo do processo de agendamento concluído.")
 	return agendamentosBemSucedidos, nil
 }
-

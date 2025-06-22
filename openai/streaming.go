@@ -107,7 +107,7 @@ func (c *Client) processToolsIfNeeded(
 		if err != nil {
 			return messages, err
 		}
-		
+
 		messages = append(messages, toolResponses...)
 	}
 

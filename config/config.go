@@ -26,9 +26,9 @@ type Config struct {
 	AWSAccessKeyID            string
 	AWSSecretAccessKey        string
 	// Trinks API configuration
-	TrinksAPIKey              string
-	TrinksEstabelecimentoID   string
-	TrinksBaseURL             string
+	TrinksAPIKey            string
+	TrinksEstabelecimentoID string
+	TrinksBaseURL           string
 }
 
 func Load() *Config {
@@ -52,9 +52,9 @@ func Load() *Config {
 		AWSAccessKeyID:            mustGetEnv("AWS_ACCESS_KEY_ID"),
 		AWSSecretAccessKey:        mustGetEnv("AWS_SECRET_ACCESS_KEY"),
 		// Trinks API configuration with defaults
-		TrinksAPIKey:              getEnv("TRINKS_API_KEY", "aYUuejFVLk32PLEV14kAw9mX8U7BxBwtnWS43Tdb"),
-		TrinksEstabelecimentoID:   getEnv("TRINKS_ESTABELECIMENTO_ID", "222326"),
-		TrinksBaseURL:             getEnv("TRINKS_BASE_URL", "https://api.trinks.com/v1"),
+		TrinksAPIKey:            getEnv("TRINKS_API_KEY", "aYUuejFVLk32PLEV14kAw9mX8U7BxBwtnWS43Tdb"),
+		TrinksEstabelecimentoID: getEnv("TRINKS_ESTABELECIMENTO_ID", "222326"),
+		TrinksBaseURL:           getEnv("TRINKS_BASE_URL", "https://api.trinks.com/v1"),
 	}
 
 	return cfg
