@@ -36,7 +36,7 @@ func CancelarListaDeAgendamentos(ctx context.Context, listaDeAgendamentos []Agen
 		urlPatch := fmt.Sprintf("%s/agendamentos/%d/status/cancelado", config.BaseURL, idAgendamento)
 
 		// Payload com as informações de quem cancelou e o motivo
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"quemCancelou": fmt.Sprintf("%d", idQuemCancelou), // A API pode esperar uma string
 			"motivo":       motivo,
 		}

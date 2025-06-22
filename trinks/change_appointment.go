@@ -63,7 +63,7 @@ func ReagendarListaDeServicos(ctx context.Context, listaDeAgendamentos []Agendam
 		urlPut := fmt.Sprintf("%s/agendamentos/%d", config.BaseURL, idAgendamento)
 
 		// Monta o payload completo necessário para a requisição PUT
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"servicoId":        agendamento.Servico.ID,
 			"clienteId":        agendamento.Cliente.ID,
 			"profissionalId":   agendamento.Profissional.ID,

@@ -61,13 +61,13 @@ func BuscarServicos(ctx context.Context, categoriaFiltro string, mostrarResumo b
 
 	var apiResponse struct {
 		Data []struct {
-			ID                 interface{} `json:"id"`
-			Nome               string      `json:"nome"`
-			Categoria          string      `json:"categoria"`
-			DuracaoEmMinutos   int         `json:"duracaoEmMinutos"`
-			Preco              float64     `json:"preco"`
-			Descricao          string      `json:"descricao"`
-			VisivelParaCliente bool        `json:"visivelParaCliente"`
+			ID                 any     `json:"id"`
+			Nome               string  `json:"nome"`
+			Categoria          string  `json:"categoria"`
+			DuracaoEmMinutos   int     `json:"duracaoEmMinutos"`
+			Preco              float64 `json:"preco"`
+			Descricao          string  `json:"descricao"`
+			VisivelParaCliente bool    `json:"visivelParaCliente"`
 		} `json:"data"`
 	}
 
@@ -80,13 +80,13 @@ func BuscarServicos(ctx context.Context, categoriaFiltro string, mostrarResumo b
 
 // processServiceDataByCategory processa os dados brutos da API e organiza por categoria
 func processServiceDataByCategory(rawData []struct {
-	ID                 interface{} `json:"id"`
-	Nome               string      `json:"nome"`
-	Categoria          string      `json:"categoria"`
-	DuracaoEmMinutos   int         `json:"duracaoEmMinutos"`
-	Preco              float64     `json:"preco"`
-	Descricao          string      `json:"descricao"`
-	VisivelParaCliente bool        `json:"visivelParaCliente"`
+	ID                 any     `json:"id"`
+	Nome               string  `json:"nome"`
+	Categoria          string  `json:"categoria"`
+	DuracaoEmMinutos   int     `json:"duracaoEmMinutos"`
+	Preco              float64 `json:"preco"`
+	Descricao          string  `json:"descricao"`
+	VisivelParaCliente bool    `json:"visivelParaCliente"`
 }, categoriaFiltro string, mostrarResumo bool) *ServiceSearchResponse {
 
 	servicosPorCategoria := make(map[string][]ServiceInfo)

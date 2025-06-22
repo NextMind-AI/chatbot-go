@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -67,7 +68,7 @@ func CriarAgendamento(ctx context.Context, clientID, serviceID, date, timeStr st
 	config := LoadTrinksConfig()
 	client := &http.Client{Timeout: 15 * time.Second}
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"clienteId": clientID,
 		"servicoId": serviceID,
 		"data":      date,
@@ -144,7 +145,7 @@ func ReagendarServico(ctx context.Context, appointmentID, newDate, newTime strin
 	config := LoadTrinksConfig()
 	client := &http.Client{Timeout: 15 * time.Second}
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"novaData":    newDate,
 		"novoHorario": newTime,
 	}
@@ -231,11 +232,8 @@ func VerificarDisponibilidade(ctx context.Context, date, profissionalID, horario
 		// Verificação de horário específico
 		var profissionaisDisponiveis []string
 		for nome, horarios := range disponibilidadeGeral {
-			for _, horario := range horarios {
-				if horario == horarioEspecifico {
-					profissionaisDisponiveis = append(profissionaisDisponiveis, nome)
-					break
-				}
+			if slices.Contains(horarios, horarioEspecifico) {
+				profissionaisDisponiveis = append(profissionaisDisponiveis, nome)
 			}
 		}
 
@@ -330,7 +328,7 @@ func AgendarServicosSequenciais(ctx context.Context, emailCliente string, idsSer
 			Str("horario", horarioAtual.Format("15:04")).
 			Msg("Agendando serviço")
 
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"servicoId":        servico.ID,
 			"clienteId":        cliente.ID,
 			"profissionalId":   profissionalIDInt,

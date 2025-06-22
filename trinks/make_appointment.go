@@ -42,7 +42,7 @@ func AgendarServicos(ctx context.Context, clienteID, profissionalID, horarioInic
 
 	for _, servico := range listaServicos {
 		// Monta o payload para a API
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"servicoId":        servico.ID,
 			"clienteId":        clienteID,
 			"profissionalId":   profissionalID,

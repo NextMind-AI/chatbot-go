@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,13 +23,13 @@ type TrinksConfig struct {
 }
 
 type Cliente struct {
-	ID           int                    `json:"id"`
-	Nome         string                 `json:"nome"`
-	Email        string                 `json:"email,omitempty"`
-	CPF          string                 `json:"cpf,omitempty"`
-	DataCadastro string                 `json:"dataCadastro"`
-	Telefones    []TelefoneCliente      `json:"telefones"`
-	Detalhes     map[string]interface{} `json:"clienteDetalhes,omitempty"`
+	ID           int               `json:"id"`
+	Nome         string            `json:"nome"`
+	Email        string            `json:"email,omitempty"`
+	CPF          string            `json:"cpf,omitempty"`
+	DataCadastro string            `json:"dataCadastro"`
+	Telefones    []TelefoneCliente `json:"telefones"`
+	Detalhes     map[string]any    `json:"clienteDetalhes,omitempty"`
 }
 
 type TelefoneCliente struct {
@@ -193,11 +194,8 @@ func BuscarServicosPorIDs(ctx context.Context, ids []int) ([]Servico, error) {
 	// Filtrar apenas os serviços solicitados
 	var servicosEncontrados []Servico
 	for _, servico := range response.Data {
-		for _, id := range ids {
-			if servico.ID == id {
-				servicosEncontrados = append(servicosEncontrados, servico)
-				break
-			}
+		if slices.Contains(ids, servico.ID) {
+			servicosEncontrados = append(servicosEncontrados, servico)
 		}
 	}
 

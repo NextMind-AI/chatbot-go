@@ -32,7 +32,7 @@ func CadastrarClienteAPI(ctx context.Context, nome, telefone string, email, cpf,
 	}
 
 	// Montar payload
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"nome": strings.ToUpper(strings.TrimSpace(nome)),
 		"telefones": []map[string]string{
 			{

@@ -31,13 +31,13 @@ func BuscarTodosServicos(ctx context.Context) (string, error) {
 
 	var apiResponse struct {
 		Data []struct {
-			ID                 interface{} `json:"id"`
-			Nome               string      `json:"nome"`
-			Categoria          string      `json:"categoria"`
-			DuracaoEmMinutos   int         `json:"duracaoEmMinutos"`
-			Preco              float64     `json:"preco"`
-			Descricao          string      `json:"descricao"`
-			VisivelParaCliente bool        `json:"visivelParaCliente"`
+			ID                 any     `json:"id"`
+			Nome               string  `json:"nome"`
+			Categoria          string  `json:"categoria"`
+			DuracaoEmMinutos   int     `json:"duracaoEmMinutos"`
+			Preco              float64 `json:"preco"`
+			Descricao          string  `json:"descricao"`
+			VisivelParaCliente bool    `json:"visivelParaCliente"`
 		} `json:"data"`
 	}
 

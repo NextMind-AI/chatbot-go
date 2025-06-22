@@ -53,8 +53,8 @@ func BuscarClientePorTelefone(ctx context.Context, phoneNumber string) (*ClientC
 
 	var apiResponse struct {
 		Data []struct {
-			ID   interface{} `json:"id"`
-			Nome string      `json:"nome"`
+			ID   any    `json:"id"`
+			Nome string `json:"nome"`
 		} `json:"data"`
 	}
 
@@ -91,10 +91,10 @@ func CadastrarCliente(ctx context.Context, name, email, ddd, phone string) (*Cli
 	config := LoadTrinksConfig()
 	client := &http.Client{Timeout: 15 * time.Second}
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"nome":  strings.ToUpper(strings.TrimSpace(name)),
 		"email": strings.ToLower(strings.TrimSpace(email)),
-		"telefones": []map[string]interface{}{
+		"telefones": []map[string]any{
 			{
 				"ddd":      ddd,
 				"telefone": phone,
