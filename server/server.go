@@ -1,7 +1,7 @@
 package server
 
 import (
-	"chatbot/processor"
+	"github.com/NextMind-AI/chatbot-go/processor"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog/log"

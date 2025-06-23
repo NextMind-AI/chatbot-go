@@ -1,13 +1,15 @@
 package openai
 
 import (
-	"chatbot/elevenlabs"
-	"chatbot/redis"
-	"chatbot/vonage"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
+
+	"github.com/NextMind-AI/chatbot-go/elevenlabs"
+	"github.com/NextMind-AI/chatbot-go/redis"
+	"github.com/NextMind-AI/chatbot-go/vonage"
 
 	"github.com/openai/openai-go"
 	"github.com/rs/zerolog/log"
@@ -76,13 +78,99 @@ func (c *Client) ProcessChatStreamingWithTools(
 // processStreamingChat handles the core streaming logic.
 // Since tools are no longer used, this simply converts history and streams the response.
 func (c *Client) processStreamingChat(ctx context.Context, config streamingConfig) error {
-	messages := convertChatHistoryWithUserName(config.chatHistory, config.userName, config.userID)
+	messages := c.convertChatHistoryWithUserName(config.chatHistory, config.userName, config.userID)
 	return c.streamResponse(ctx, config, messages)
 }
 
 // streamResponse creates a streaming chat completion and sends messages via WhatsApp as they arrive.
 // It handles the parsing of streamed JSON and manages message deduplication with guaranteed ordering.
 func (c *Client) streamResponse(
+	ctx context.Context,
+	config streamingConfig,
+	messages []openai.ChatCompletionMessageParamUnion,
+) error {
+	schemaParam := createSchemaParam()
+
+	// Prepare tools for the request
+	tools := []openai.ChatCompletionToolParam{}
+	for _, tool := range c.tools {
+		tools = append(tools, tool.Definition)
+	}
+
+	params := openai.ChatCompletionNewParams{
+		Messages: messages,
+		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{JSONSchema: schemaParam},
+		},
+		Model: openai.ChatModelGPT4_1Mini,
+	}
+
+	// Add tools if any are defined
+	if len(tools) > 0 {
+		params.Tools = tools
+	}
+
+	stream := c.client.Chat.Completions.NewStreaming(ctx, params)
+
+	parser := NewStreamingJSONParser()
+	var fullContent strings.Builder
+	sentMessages := make(map[int]bool)
+
+	messageQueue := make(chan messageWithIndex, 100)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		c.sendMessagesSequentially(ctx, config, messageQueue)
+	}()
+
+	for stream.Next() {
+		evt := stream.Current()
+		if len(evt.Choices) > 0 {
+			content := evt.Choices[0].Delta.Content
+			fullContent.WriteString(content)
+
+			newMessages := parser.AddChunk(content)
+
+			for i, msg := range newMessages {
+				messageIndex := parser.MsgCount - len(newMessages) + i
+				if !sentMessages[messageIndex] {
+					sentMessages[messageIndex] = true
+
+					log.Info().
+						Str("user_id", config.userID).
+						Int("message_index", messageIndex).
+						Str("content", msg.Content).
+						Str("type", msg.Type).
+						Msg("Queueing streamed message for sequential sending")
+
+					select {
+					case messageQueue <- messageWithIndex{
+						message: msg,
+						index:   messageIndex,
+					}:
+					case <-ctx.Done():
+						close(messageQueue)
+						<-done
+						return ctx.Err()
+					}
+				}
+			}
+		}
+	}
+
+	close(messageQueue)
+	<-done
+
+	if err := stream.Err(); err != nil {
+		return err
+	}
+
+	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
+}
+
+// streamResponseWithoutTools streams the response without including tools in the streaming call
+func (c *Client) streamResponseWithoutTools(
 	ctx context.Context,
 	config streamingConfig,
 	messages []openai.ChatCompletionMessageParamUnion,
@@ -152,6 +240,105 @@ func (c *Client) streamResponse(
 	}
 
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
+}
+
+// handleToolCalls processes tool calls from the AI and returns updated messages
+func (c *Client) handleToolCalls(
+	ctx context.Context,
+	messages []openai.ChatCompletionMessageParamUnion,
+	userID string,
+) ([]openai.ChatCompletionMessageParamUnion, error) {
+	// Prepare tools for the request
+	tools := []openai.ChatCompletionToolParam{}
+	for _, tool := range c.tools {
+		tools = append(tools, tool.Definition)
+	}
+
+	log.Info().
+		Str("user_id", userID).
+		Int("tool_count", len(tools)).
+		Msg("Calling AI with custom tools")
+
+	// Make initial chat completion request with tools
+	completion, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Messages: messages,
+		Tools:    tools,
+		Model:    openai.ChatModelGPT4_1Mini,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get completion with tools: %w", err)
+	}
+
+	// Check if there are any tool calls
+	if len(completion.Choices) == 0 || len(completion.Choices[0].Message.ToolCalls) == 0 {
+		log.Info().
+			Str("user_id", userID).
+			Msg("No tool calls made, proceeding with streaming")
+		return messages, nil
+	}
+
+	// Add the assistant's message with tool calls to the conversation
+	updatedMessages := append(messages, completion.Choices[0].Message.ToParam())
+
+	// Process each tool call
+	for _, toolCall := range completion.Choices[0].Message.ToolCalls {
+		log.Info().
+			Str("user_id", userID).
+			Str("tool_name", toolCall.Function.Name).
+			Str("tool_id", toolCall.ID).
+			Msg("Processing tool call")
+
+		// Find the tool handler
+		var handler ToolHandler
+		for _, tool := range c.tools {
+			if tool.Definition.Function.Name == toolCall.Function.Name {
+				handler = tool.Handler
+				break
+			}
+		}
+
+		if handler == nil {
+			log.Error().
+				Str("user_id", userID).
+				Str("tool_name", toolCall.Function.Name).
+				Msg("No handler found for tool")
+			continue
+		}
+
+		// Parse tool arguments
+		var args map[string]any
+		err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("user_id", userID).
+				Str("tool_name", toolCall.Function.Name).
+				Msg("Failed to parse tool arguments")
+			continue
+		}
+
+		// Call the tool handler
+		result, err := handler(ctx, args)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("user_id", userID).
+				Str("tool_name", toolCall.Function.Name).
+				Msg("Tool handler returned error")
+			result = fmt.Sprintf("Error: %s", err.Error())
+		}
+
+		log.Info().
+			Str("user_id", userID).
+			Str("tool_name", toolCall.Function.Name).
+			Str("result", result).
+			Msg("Tool call completed")
+
+		// Add the tool result to the conversation
+		updatedMessages = append(updatedMessages, openai.ToolMessage(result, toolCall.ID))
+	}
+
+	return updatedMessages, nil
 }
 
 // messageWithIndex wraps a message with its index for ordered processing

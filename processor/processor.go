@@ -1,13 +1,14 @@
 package processor
 
 import (
-	"chatbot/elevenlabs"
-	"chatbot/execution"
-	"chatbot/openai"
-	"chatbot/redis"
-	"chatbot/vonage"
 	"context"
 	"errors"
+
+	"github.com/NextMind-AI/chatbot-go/elevenlabs"
+	"github.com/NextMind-AI/chatbot-go/execution"
+	"github.com/NextMind-AI/chatbot-go/openai"
+	"github.com/NextMind-AI/chatbot-go/redis"
+	"github.com/NextMind-AI/chatbot-go/vonage"
 
 	"github.com/rs/zerolog/log"
 )

@@ -1,4 +1,4 @@
-module chatbot
+module github.com/NextMind-AI/chatbot-go
 
 go 1.24.3
 
