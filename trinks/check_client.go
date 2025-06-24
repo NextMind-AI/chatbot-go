@@ -15,7 +15,7 @@ func VerificarClientePorTelefone(ctx context.Context, telefone string) (string, 
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	// Buscar cliente por telefone
-	url := fmt.Sprintf("%s/clientes/buscar-por-telefone?telefone=%s", config.BaseURL, telefone)
+	url := fmt.Sprintf("%s/clientes/buscar-por-telefone?telefone=%s", config.BaseURL, telefone[2:]) // Remover DDD do telefone
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", err
