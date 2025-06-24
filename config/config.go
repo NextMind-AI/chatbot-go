@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog/log"
@@ -49,7 +50,38 @@ func Load() *Config {
 		AWSSecretAccessKey:        mustGetEnv("AWS_SECRET_ACCESS_KEY"),
 	}
 
+	// Validate JWT format
+	validateJWT(cfg.VonageJWT)
+
 	return cfg
+}
+
+func validateJWT(jwt string) {
+	if jwt == "" {
+		log.Fatal().Msg("VONAGE_JWT is empty")
+	}
+
+	// Basic JWT format validation (should have 3 parts separated by dots)
+	parts := strings.Split(jwt, ".")
+	if len(parts) != 3 {
+		log.Fatal().Msg("VONAGE_JWT appears to be malformed - should have 3 parts separated by dots")
+	}
+
+	// Check if JWT starts with "Bearer " (common mistake)
+	if strings.HasPrefix(jwt, "Bearer ") {
+		log.Fatal().Msg("VONAGE_JWT should not include 'Bearer ' prefix - remove it from the environment variable")
+	}
+
+	log.Info().
+		Str("jwt_prefix", jwt[:min(10, len(jwt))]+"...").
+		Msg("VONAGE_JWT loaded successfully")
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func getEnv(key, defaultValue string) string {

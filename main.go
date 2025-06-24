@@ -16,7 +16,7 @@ import (
 func main() {
 	appConfig := config.Load()
 
-	httpClient := http.Client{}
+	httpClient := &http.Client{}
 
 	awsClient := aws.NewClient(appConfig.S3Region, appConfig.S3Bucket)
 

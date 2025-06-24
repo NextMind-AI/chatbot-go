@@ -9,7 +9,7 @@ type Client struct {
 	httpClient *http.Client
 }
 
-func NewClient(vonageJWT, geospecificMessagesAPIURL, messagesAPIURL, phoneNumberID string, httpClient http.Client) Client {
+func NewClient(vonageJWT, geospecificMessagesAPIURL, messagesAPIURL, phoneNumberID string, httpClient *http.Client) Client {
 	client := Client{
 		config: Config{
 			VonageJWT:                 vonageJWT,
@@ -17,7 +17,7 @@ func NewClient(vonageJWT, geospecificMessagesAPIURL, messagesAPIURL, phoneNumber
 			MessagesAPIURL:            messagesAPIURL,
 			PhoneNumberID:             phoneNumberID,
 		},
-		httpClient: &httpClient,
+		httpClient: httpClient,
 	}
 
 	return client

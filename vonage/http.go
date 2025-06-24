@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/rs/zerolog/log"
 )
 
 func (c *Client) sendMessageRequest(method, url string, body any) (*MessageResponse, error) {
@@ -35,19 +37,36 @@ func (c *Client) sendRequest(method, url string, body any) ([]byte, error) {
 
 	c.setHeaders(req)
 
+	log.Debug().
+		Str("method", method).
+		Str("url", url).
+		Str("jwt_prefix", c.getJWTPreview()).
+		Msg("Sending Vonage API request")
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if !c.isSuccessStatusCode(resp.StatusCode) {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if !c.isSuccessStatusCode(resp.StatusCode) {
+		log.Error().
+			Int("status_code", resp.StatusCode).
+			Str("response_body", string(responseBody)).
+			Str("url", url).
+			Str("method", method).
+			Msg("Vonage API request failed")
+		
+		if resp.StatusCode == 401 {
+			return nil, fmt.Errorf("authentication failed (401): check your VONAGE_JWT token. Response: %s", string(responseBody))
+		}
+		
+		return nil, fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, string(responseBody))
 	}
 
 	return responseBody, nil
@@ -61,4 +80,12 @@ func (c *Client) setHeaders(req *http.Request) {
 
 func (c *Client) isSuccessStatusCode(statusCode int) bool {
 	return statusCode == http.StatusOK || statusCode == http.StatusAccepted
+}
+
+// getJWTPreview returns the first 10 characters of the JWT for debugging
+func (c *Client) getJWTPreview() string {
+	if len(c.config.VonageJWT) > 10 {
+		return c.config.VonageJWT[:10] + "..."
+	}
+	return c.config.VonageJWT
 }
