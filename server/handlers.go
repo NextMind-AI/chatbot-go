@@ -38,7 +38,7 @@ func (s *Server) healthCheckHandler(c fiber.Ctx) error {
 	return c.JSON(status)
 }
 
-func (h *Handler) handleCacheStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCacheStatus(w http.ResponseWriter, r *http.Request) {
 	stats := openai.GetCacheStatistics()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
