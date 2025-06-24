@@ -70,17 +70,46 @@ func (c *Client) ProcessChatStreamingWithTools(
 	return c.processStreamingChat(ctx, config)
 }
 
+// ProcessChatStreamingWithoutTools processa chat streaming SEM ferramentas (usado no debounce)
+func (c *Client) ProcessChatStreamingWithoutTools(
+	ctx context.Context,
+	userID string,
+	chatHistory []redis.ChatMessage,
+	vonageClient *vonage.Client,
+	redisClient *redis.Client,
+	elevenLabsClient *elevenlabs.Client,
+	toNumber string,
+) error {
+	log.Info().
+		Str("user_id", userID).
+		Msg("Processando chat streaming SEM tools (debounce)")
+
+	config := streamingConfig{
+		userID:           userID,
+		chatHistory:      chatHistory,
+		vonageClient:     vonageClient,
+		redisClient:      redisClient,
+		elevenLabsClient: elevenLabsClient,
+		toNumber:         toNumber,
+		useTools:         false, // SEM TOOLS para evitar duplicação
+	}
+	return c.processStreamingChat(ctx, config)
+}
+
 // processStreamingChat handles the core streaming logic for both tool and non-tool scenarios.
 // It consolidates the common streaming functionality to avoid code duplication.
 func (c *Client) processStreamingChat(ctx context.Context, config streamingConfig) error {
-    messages := convertChatHistory(ctx, config.userID, config.chatHistory) // Passar ctx e userID
+    messages := convertChatHistory(ctx, config.userID, config.chatHistory)
 
     if config.useTools {
+        log.Info().Str("user_id", config.userID).Msg("Processando COM ferramentas")
         toolMessages, err := c.processToolsIfNeeded(ctx, config.userID, messages)
         if err != nil {
             return err
         }
         messages = toolMessages
+    } else {
+        log.Info().Str("user_id", config.userID).Msg("Processando SEM ferramentas (debounce)")
     }
 
     return c.streamResponse(ctx, config, messages)

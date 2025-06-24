@@ -290,7 +290,28 @@ func AgendarServicosSequenciais(ctx context.Context, emailCliente string, idsSer
 		return nil, fmt.Errorf("💡 Cliente não encontrado. Realize o cadastro primeiro")
 	}
 
-	// 2. Converter IDs de string para int
+	// 2. VERIFICAR DUPLICATAS - buscar agendamentos recentes do cliente
+	agendamentosRecentes, err := BuscarAgendamentosCliente(ctx, cliente.ID)
+	if err == nil {
+		horarioDesejado, _ := time.Parse("2006-01-02T15:04:05", dataHoraInicio)
+
+		for _, ag := range agendamentosRecentes {
+			agendamentoTime, _ := time.Parse("2006-01-02T15:04:05", ag.DataHoraInicio)
+
+			// Se há agendamento no mesmo horário e mesma data (tolerância de 5 minutos)
+			if agendamentoTime.Sub(horarioDesejado).Abs() <= 5*time.Minute {
+				log.Warn().
+					Str("email_cliente", emailCliente).
+					Str("horario_existente", ag.DataHoraInicio).
+					Str("horario_solicitado", dataHoraInicio).
+					Msg("Agendamento duplicado detectado")
+
+				return []Agendamento{ag}, nil // Retorna o agendamento existente
+			}
+		}
+	}
+
+	// 3. Converter IDs de string para int
 	var idsInt []int
 	for _, idStr := range idsServicos {
 		id, err := strconv.Atoi(idStr)
@@ -300,19 +321,19 @@ func AgendarServicosSequenciais(ctx context.Context, emailCliente string, idsSer
 		idsInt = append(idsInt, id)
 	}
 
-	// 3. Buscar serviços por IDs
+	// 4. Buscar serviços por IDs
 	servicos, err := BuscarServicosPorIDs(ctx, idsInt)
 	if err != nil || len(servicos) == 0 {
 		return nil, fmt.Errorf("❌ Nenhum serviço válido encontrado com os IDs fornecidos")
 	}
 
-	// 4. Parse do horário inicial
+	// 5. Parse do horário inicial
 	horarioAtual, err := time.Parse("2006-01-02T15:04:05", dataHoraInicio)
 	if err != nil {
 		return nil, fmt.Errorf("formato de data/hora inválido: %s", dataHoraInicio)
 	}
 
-	// 5. Agendar cada serviço sequencialmente
+	// 6. Agendar cada serviço sequencialmente
 	var agendamentosFeitos []Agendamento
 	config := LoadTrinksConfig()
 	httpClient := &http.Client{Timeout: 15 * time.Second}
