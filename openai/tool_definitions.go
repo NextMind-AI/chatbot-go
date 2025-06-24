@@ -137,12 +137,9 @@ var reagendarServicoTool = openai.ChatCompletionToolParam{
 // getAllTools retorna todas as tools disponíveis
 func getAllTools() []openai.ChatCompletionToolParam {
 	return []openai.ChatCompletionToolParam{
-		checkServicesTool,
 		registerClientTool,
-		checkClientTool,
 		fazerAgendamentoTool,
 		verificarHorariosDisponiveisTool,
-		agendamentosClienteTool,
 		cancelarAgendamentoTool,
 		reagendarServicoTool,
 	}
