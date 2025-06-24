@@ -10,11 +10,12 @@ import (
 // convertChatHistory converts Redis chat messages to OpenAI message format.
 // It transforms the chat history from the Redis format to the format expected by OpenAI's API.
 func convertChatHistory(ctx context.Context, userID string, chatHistory []redis.ChatMessage) []openai.ChatCompletionMessageParamUnion {
-	// Criar prompt dinâmico com serviços e informações do cliente
+	// Criar prompt dinâmico com serviços, informações do cliente e profissionais
     dynamicPrompt := NewPromptBuilder().
         AddContextualInfo().
         AddClientInfo(ctx, userID). // userID é o número de celular
         AddServices(ctx).
+        AddProfessionals(ctx). // Adicionar profissionais
         Build()
 
     messages := []openai.ChatCompletionMessageParamUnion{
