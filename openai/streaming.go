@@ -73,17 +73,17 @@ func (c *Client) ProcessChatStreamingWithTools(
 // processStreamingChat handles the core streaming logic for both tool and non-tool scenarios.
 // It consolidates the common streaming functionality to avoid code duplication.
 func (c *Client) processStreamingChat(ctx context.Context, config streamingConfig) error {
-	messages := convertChatHistory(config.chatHistory)
+    messages := convertChatHistory(ctx, config.userID, config.chatHistory) // Passar ctx e userID
 
-	if config.useTools {
-		toolMessages, err := c.processToolsIfNeeded(ctx, config.userID, messages)
-		if err != nil {
-			return err
-		}
-		messages = toolMessages
-	}
+    if config.useTools {
+        toolMessages, err := c.processToolsIfNeeded(ctx, config.userID, messages)
+        if err != nil {
+            return err
+        }
+        messages = toolMessages
+    }
 
-	return c.streamResponse(ctx, config, messages)
+    return c.streamResponse(ctx, config, messages)
 }
 
 // processToolsIfNeeded checks if tool calls are needed and processes them.

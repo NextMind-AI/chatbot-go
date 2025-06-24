@@ -1,5 +1,127 @@
 package openai
 
+import (
+	"chatbot/trinks"
+	"context"
+	"strings"
+	"time"
+)
+
+type PromptBuilder struct {
+   basePrompt string
+   variables map[string]string
+}
+
+func NewPromptBuilder() *PromptBuilder {
+   return &PromptBuilder{
+      basePrompt: systemPrompt,
+      variables: make(map[string]string),
+   }
+}
+
+func (pb *PromptBuilder) AddContextualInfo() *PromptBuilder {
+    now := time.Now()
+    
+    pb.variables["{{CURRENT_TIME}}"] = now.Format("15:04")
+    pb.variables["{{CURRENT_DATE}}"] = now.Format("02/01/2006")
+    pb.variables["{{DAY_OF_WEEK}}"] = getDayOfWeekInPortuguese(now.Weekday())
+    pb.variables["{{LOCATION}}"] = "Palmas-TO"
+    
+    return pb
+}
+
+// AddClientInfo adiciona informações do cliente baseadas no número de celular (userID)
+func (pb *PromptBuilder) AddClientInfo(ctx context.Context, userID string) *PromptBuilder {
+    // userID é o número de celular
+    clientInfo, err := trinks.VerificarClientePorTelefone(ctx, userID)
+    if err != nil {
+        // Em caso de erro, adiciona informação de cliente não encontrado
+        pb.variables["{{CLIENT_STATUS}}"] = "Cliente não identificado"
+        pb.variables["{{CLIENT_INFO}}"] = ""
+        pb.variables["{{CLIENT_APPOINTMENTS}}"] = ""
+    } else {
+        if strings.Contains(clientInfo, "Não registrado") {
+            pb.variables["{{CLIENT_STATUS}}"] = "Novo cliente (não cadastrado)"
+            pb.variables["{{CLIENT_INFO}}"] = ""
+            pb.variables["{{CLIENT_APPOINTMENTS}}"] = ""
+        } else {
+            pb.variables["{{CLIENT_STATUS}}"] = "Cliente cadastrado"
+            pb.variables["{{CLIENT_INFO}}"] = clientInfo
+            
+            // Extrair apenas a parte dos agendamentos para contexto
+            if strings.Contains(clientInfo, "AGENDAMENTOS:") {
+                parts := strings.Split(clientInfo, "AGENDAMENTOS:")
+                if len(parts) > 1 {
+                    pb.variables["{{CLIENT_APPOINTMENTS}}"] = "AGENDAMENTOS:" + parts[1]
+                } else {
+                    pb.variables["{{CLIENT_APPOINTMENTS}}"] = ""
+                }
+            } else {
+                pb.variables["{{CLIENT_APPOINTMENTS}}"] = ""
+            }
+        }
+    }
+    
+    return pb
+}
+
+func (pb *PromptBuilder) AddServices(ctx context.Context) *PromptBuilder {
+    services, err := trinks.BuscarTodosServicos(ctx)
+    if err != nil {
+        // Em caso de erro, adiciona mensagem de fallback
+        pb.variables["{{SERVICES}}"] = "Erro ao carregar serviços. Consulte diretamente conosco."
+    } else {
+        pb.variables["{{SERVICES}}"] = services
+    }
+    return pb
+}
+
+// Build constrói o prompt final
+func (pb *PromptBuilder) Build() string {
+    result := pb.basePrompt
+    
+    // Adicionar header contextual expandido
+    contextHeader := `
+   **INFORMAÇÕES CONTEXTUAIS:**
+   - Data: {{CURRENT_DATE}} ({{DAY_OF_WEEK}})
+   - Horário: {{CURRENT_TIME}}
+   - Localização: {{LOCATION}}
+   - Status do Cliente: {{CLIENT_STATUS}}
+   
+   {{CLIENT_INFO}}
+   
+   **SERVIÇOS DISPONÍVEIS:**
+   {{SERVICES}}
+   
+   ---
+
+   `
+
+    result = contextHeader + result
+    
+    // Substituir todas as variáveis
+    for placeholder, value := range pb.variables {
+        result = strings.ReplaceAll(result, placeholder, value)
+    }
+    
+    return result
+}
+
+// Funções auxiliares
+func getDayOfWeekInPortuguese(weekday time.Weekday) string {
+    days := map[time.Weekday]string{
+        time.Sunday:    "Domingo",
+        time.Monday:    "Segunda-feira",
+        time.Tuesday:   "Terça-feira",
+        time.Wednesday: "Quarta-feira",
+        time.Thursday:  "Quinta-feira",
+        time.Friday:    "Sexta-feira",
+        time.Saturday:  "Sábado",
+    }
+    return days[weekday]
+}
+
+
 var systemPrompt = `**FORMATAÇÃO DE MENSAGENS:**
 
 Tu deves dividir tuas respostas em múltiplas mensagens quando apropriado. Siga as seguintes diretrizes:
@@ -23,6 +145,8 @@ Tu deves dividir tuas respostas em múltiplas mensagens quando apropriado. Siga 
    - Explicações longas: divide por conceitos ou etapas
    - Listas: considera enviar cada item importante como uma mensagem separada
    - Instruções: divide em passos claros
+
+
 ---
 
 Tu és o chatbot da **Barbaterapia LTDA** – barbearia premium sediada em Palmas-TO.  

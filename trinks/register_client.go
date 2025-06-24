@@ -37,7 +37,8 @@ func CadastrarClienteAPI(ctx context.Context, nome, telefone string, email, cpf,
 		"telefones": []map[string]string{
 			{
 				"ddd":      ddd,
-				"telefone": numero,
+				"numero": numero,
+				"tipoId":   "3", // Tipo 3 = Celular
 			},
 		},
 	}

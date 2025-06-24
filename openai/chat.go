@@ -31,32 +31,31 @@ func (c *Client) ProcessChat(
 // Handles tool calls and manages the conversation flow accordingly.
 // Returns the final AI response after processing any tool calls.
 func (c *Client) ProcessChatWithTools(
-	ctx context.Context,
-	userID string,
-	chatHistory []redis.ChatMessage,
+    ctx context.Context,
+    userID string,
+    chatHistory []redis.ChatMessage,
 ) (string, error) {
-	messages := convertChatHistory(chatHistory)
+    messages := convertChatHistory(ctx, userID, chatHistory) // Passar ctx e userID
 
-	chatCompletion, err := c.createChatCompletionWithTools(ctx, messages)
-	if err != nil {
-		return "", err
-	}
+    chatCompletion, err := c.createChatCompletionWithTools(ctx, messages)
+    if err != nil {
+        return "", err
+    }
 
-	toolCalls := chatCompletion.Choices[0].Message.ToolCalls
+    toolCalls := chatCompletion.Choices[0].Message.ToolCalls
 
-	if len(toolCalls) > 0 {
-		messages = append(messages, chatCompletion.Choices[0].Message.ToParam())
+    if len(toolCalls) > 0 {
+        messages = append(messages, chatCompletion.Choices[0].Message.ToParam())
 
-		// CORRIGIR: handleToolCalls retorna ([]messages, error), não ([]messages, bool)
-		toolResponses, err := c.handleToolCalls(ctx, userID, toolCalls)
-		if err != nil {
-			return "", err
-		}
+        toolResponses, err := c.handleToolCalls(ctx, userID, toolCalls)
+        if err != nil {
+            return "", err
+        }
 
-		messages = append(messages, toolResponses...)
+        messages = append(messages, toolResponses...)
 
-		return c.ProcessChat(ctx, messages)
-	}
+        return c.ProcessChat(ctx, messages)
+    }
 
-	return chatCompletion.Choices[0].Message.Content, nil
+    return chatCompletion.Choices[0].Message.Content, nil
 }
