@@ -70,9 +70,10 @@ MESSAGES_API_URL=https://api.nexmo.com/v1/messages
 package main
 
 import (
-    "chatbot"
     "context"
     "log"
+
+    "github.com/NextMind-AI/chatbot-go"
 )
 
 // Define your tool functions with proper types
