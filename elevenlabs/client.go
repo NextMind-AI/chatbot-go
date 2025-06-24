@@ -12,7 +12,7 @@
 //	awsClient, err := aws.NewClient("us-east-2", "my-bucket")
 //
 //	// Initialize client
-//	client := elevenlabs.NewClient(apiKey, http.Client{}, awsClient)
+//	client := elevenlabs.NewClient(apiKey, &http.Client{}, awsClient)
 //
 //	// Transcribe audio
 //	text, err := client.TranscribeAudio("https://example.com/audio.mp3")
@@ -52,11 +52,11 @@ type Client struct {
 //   - awsClient: AWS client configured for S3 operations
 //
 // Returns a configured Client ready for use with ElevenLabs APIs.
-func NewClient(apiKey string, httpClient http.Client, awsClient AWSClient) Client {
+func NewClient(apiKey string, httpClient *http.Client, awsClient AWSClient) Client {
 	return Client{
 		APIKey:       apiKey,
 		LanguageCode: "pt",
-		HTTPClient:   &httpClient,
+		HTTPClient:   httpClient,
 		AWSClient:    awsClient,
 	}
 }
