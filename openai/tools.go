@@ -147,18 +147,12 @@ func (c *Client) handleToolCalls(
 		var success bool
 
 		switch toolCall.Function.Name {
-		case "check_services":
-			response, success = c.processCheckServicesTool(ctx, userID, toolCall)
 		case "register_client":
 			response, success = c.processRegisterClientTool(ctx, userID, toolCall)
-		case "check_cliente":
-			response, success = c.processCheckClientTool(ctx, userID, toolCall)
 		case "fazer_agendamento":
 			response, success = c.processFazerAgendamentoTool(ctx, userID, toolCall)
 		case "verificar_horarios_disponiveis":
 			response, success = c.processVerificarHorarioDisponivelTool(ctx, userID, toolCall)
-		case "agendamentos_cliente":
-			response, success = c.processAgendamentoClienteTool(ctx, userID, toolCall)
 		case "cancelar_agendamento":
 			response, success = c.processCancelarAgendamentoTool(ctx, userID, toolCall)
 		case "reagendar_servico":
@@ -200,39 +194,6 @@ func (c *Client) handleToolCalls(
 // ============================================================================
 // HANDLERS DAS TOOLS
 // ============================================================================
-
-func (c *Client) processCheckServicesTool(
-	ctx context.Context,
-	userID string,
-	toolCall openai.ChatCompletionMessageToolCall,
-) (openai.ChatCompletionMessageParamUnion, bool) {
-	var request ServiceSearchRequest
-	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
-	if err != nil {
-		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao interpretar argumentos de check_services")
-		return openai.ToolMessage("Erro ao interpretar parâmetros de consulta de serviços", toolCall.ID), false
-	}
-
-	if request.MostrarResumo == false && request.CategoriaFiltro == "" {
-		request.MostrarResumo = true
-	}
-
-	log.Info().Str("user_id", userID).Str("categoria_filtro", request.CategoriaFiltro).Bool("mostrar_resumo", request.MostrarResumo).Msg("Processando consulta de serviços")
-
-	response, err := trinks.BuscarServicos(ctx, request.CategoriaFiltro, request.MostrarResumo)
-	if err != nil {
-		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao buscar serviços")
-		return openai.ToolMessage("Erro ao consultar serviços disponíveis", toolCall.ID), false
-	}
-
-	respJSON, err := json.Marshal(response)
-	if err != nil {
-		log.Error().Err(err).Msg("Erro ao serializar resposta de serviços")
-		return openai.ToolMessage("Erro ao processar resposta de serviços", toolCall.ID), false
-	}
-
-	return openai.ToolMessage(string(respJSON), toolCall.ID), true
-}
 
 func (c *Client) processRegisterClientTool(
 	ctx context.Context,
@@ -301,35 +262,6 @@ func (c *Client) processRegisterClientTool(
 	if err != nil {
 		log.Error().Err(err).Msg("Erro ao serializar resposta de cadastro")
 		return openai.ToolMessage("Cliente cadastrado com sucesso, mas erro ao processar resposta", toolCall.ID), true
-	}
-
-	return openai.ToolMessage(string(respJSON), toolCall.ID), true
-}
-
-func (c *Client) processCheckClientTool(
-	ctx context.Context,
-	userID string,
-	toolCall openai.ChatCompletionMessageToolCall,
-) (openai.ChatCompletionMessageParamUnion, bool) {
-	var request trinks.ClientCheckRequest // USAR trinks.ClientCheckRequest
-	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &request)
-	if err != nil {
-		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao interpretar argumentos de check_cliente")
-		return openai.ToolMessage("Erro ao interpretar parâmetros de consulta de cliente", toolCall.ID), false
-	}
-
-	log.Info().Str("user_id", userID).Str("email", request.Email).Msg("Processando consulta de cliente")
-
-	response, err := trinks.BuscarClientePorEmailResponse(ctx, request.Email)
-	if err != nil {
-		log.Error().Err(err).Str("user_id", userID).Msg("Erro ao buscar cliente")
-		return openai.ToolMessage("Erro ao consultar cliente", toolCall.ID), false
-	}
-
-	respJSON, err := json.Marshal(response)
-	if err != nil {
-		log.Error().Err(err).Msg("Erro ao serializar resposta de consulta de cliente")
-		return openai.ToolMessage("Erro ao processar resposta de cliente", toolCall.ID), false
 	}
 
 	return openai.ToolMessage(string(respJSON), toolCall.ID), true
@@ -437,60 +369,6 @@ func (c *Client) processVerificarHorarioDisponivelTool(
 	}
 
 	return openai.ToolMessage(string(respJSON), toolCall.ID), true
-}
-
-func (c *Client) processAgendamentoClienteTool(
-	ctx context.Context,
-	userID string,
-	toolCall openai.ChatCompletionMessageToolCall,
-) (openai.ChatCompletionMessageParamUnion, bool) {
-	var req ClientAppointmentsRequest
-	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &req); err != nil {
-		log.Error().Err(err).Str("user_id", userID).
-			Msg("Erro ao interpretar argumentos de agendamentos_cliente")
-		return openai.ToolMessage("Erro nos parâmetros de consulta de agendamentos", toolCall.ID), false
-	}
-
-	log.Info().Str("user_id", userID).Str("client_id", req.ClientID).
-		Msg("Buscando agendamentos do cliente")
-
-	clienteIDInt, err := strconv.Atoi(req.ClientID)
-	if err != nil {
-		return openai.ToolMessage("ID do cliente inválido", toolCall.ID), false
-	}
-
-	agendamentos, err := trinks.BuscarAgendamentosCliente(ctx, clienteIDInt)
-	if err != nil {
-		log.Error().Err(err).Str("user_id", userID).
-			Msg("Erro ao buscar agendamentos do cliente")
-		return openai.ToolMessage("Erro ao consultar agendamentos do cliente", toolCall.ID), false
-	}
-
-	items := make([]AppointmentItem, len(agendamentos))
-	for i, agendamento := range agendamentos {
-		data, hora, _ := trinks.FormatarDataHora(agendamento.DataHoraInicio)
-
-		items[i] = AppointmentItem{
-			AppointmentID: strconv.Itoa(agendamento.ID),
-			ServiceID:     strconv.Itoa(agendamento.Servico.ID),
-			Date:          data,
-			Time:          hora,
-			Status:        agendamento.Status.Nome,
-		}
-	}
-
-	resp := &ClientAppointmentsResponse{
-		ClientID:     req.ClientID,
-		Appointments: items,
-	}
-
-	out, err := json.Marshal(resp)
-	if err != nil {
-		log.Error().Err(err).
-			Msg("Erro ao serializar resposta de agendamentos")
-		return openai.ToolMessage("Erro ao processar resposta de agendamentos", toolCall.ID), false
-	}
-	return openai.ToolMessage(string(out), toolCall.ID), true
 }
 
 func (c *Client) processCancelarAgendamentoTool(

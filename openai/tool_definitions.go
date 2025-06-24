@@ -6,28 +6,6 @@ import "github.com/openai/openai-go"
 // DEFINIÇÕES DAS TOOLS
 // ============================================================================
 
-var checkServicesTool = openai.ChatCompletionToolParam{
-	Function: openai.FunctionDefinitionParam{
-		Name:        "check_services",
-		Description: openai.String("Lista todos os serviços disponíveis organizados por categoria."),
-		Parameters: openai.FunctionParameters{
-			"type": "object",
-			"properties": map[string]any{
-				"categoria_filtro": map[string]any{
-					"type":        "string",
-					"description": "Categoria para filtrar (opcional). Ex: 'Cabelo', 'Barba'",
-				},
-				"mostrar_resumo": map[string]any{
-					"type":        "boolean",
-					"description": "Se deve incluir resumo estatístico por categoria (padrão: true)",
-					"default":     true,
-				},
-			},
-			"required": []string{},
-		},
-	},
-}
-
 var registerClientTool = openai.ChatCompletionToolParam{
 	Function: openai.FunctionDefinitionParam{
 		Name:        "register_client",
@@ -53,23 +31,6 @@ var registerClientTool = openai.ChatCompletionToolParam{
 				},
 			},
 			"required": []string{"name", "email", "ddd", "phone"},
-		},
-	},
-}
-
-var checkClientTool = openai.ChatCompletionToolParam{
-	Function: openai.FunctionDefinitionParam{
-		Name:        "check_cliente",
-		Description: openai.String("Verifica se o cliente existe com base no e-mail."),
-		Parameters: openai.FunctionParameters{
-			"type": "object",
-			"properties": map[string]any{
-				"email": map[string]any{
-					"type":        "string",
-					"description": "E-mail do cliente para verificar se existe",
-				},
-			},
-			"required": []string{"email"},
 		},
 	},
 }
@@ -127,23 +88,6 @@ var verificarHorariosDisponiveisTool = openai.ChatCompletionToolParam{
 				},
 			},
 			"required": []string{"date"},
-		},
-	},
-}
-
-var agendamentosClienteTool = openai.ChatCompletionToolParam{
-	Function: openai.FunctionDefinitionParam{
-		Name:        "agendamentos_cliente",
-		Description: openai.String("Retorna os agendamentos agendados para um cliente específico pelo ID."),
-		Parameters: openai.FunctionParameters{
-			"type": "object",
-			"properties": map[string]any{
-				"client_id": map[string]any{
-					"type":        "string",
-					"description": "ID do cliente para consulta de agendamentos",
-				},
-			},
-			"required": []string{"client_id"},
 		},
 	},
 }
