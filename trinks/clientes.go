@@ -97,7 +97,7 @@ func CadastrarCliente(ctx context.Context, name, email, ddd, phone string) (*Cli
 		"telefones": []map[string]any{
 			{
 				"ddd":      ddd,
-				"telefone": phone,
+				"numero": phone,
 				"tipoId":   3, // Tipo 3 = Celular
 			},
 		},
