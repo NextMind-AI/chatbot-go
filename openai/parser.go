@@ -19,6 +19,11 @@ type StreamingJSONParser struct {
 	foundMessages bool
 }
 
+// GetBuffer returns the current buffer content for debugging purposes
+func (p *StreamingJSONParser) GetBuffer() string {
+	return p.buffer.String()
+}
+
 // NewStreamingJSONParser creates a new instance of StreamingJSONParser.
 func NewStreamingJSONParser() *StreamingJSONParser {
 	return &StreamingJSONParser{}

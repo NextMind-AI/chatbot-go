@@ -6,6 +6,7 @@ import (
 	"chatbot/vonage"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/openai/openai-go"
@@ -123,6 +124,11 @@ func (c *Client) streamResponse(
 ) error {
 	schemaParam := createSchemaParam()
 
+	// TEMP: Log schema param for debugging
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("DEBUG: Creating streaming request with JSON schema")
+
 	stream := c.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
 		Messages: messages,
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
@@ -132,10 +138,21 @@ func (c *Client) streamResponse(
 	})
 
 	parser := NewStreamingJSONParser()
+
+	// TEMP: Log parser initialization
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("DEBUG: Initialized streaming JSON parser")
+
 	var fullContent strings.Builder
 	sentMessages := make(map[int]bool)
 	hasProcessedAnyMessage := false
 	var streamingError error
+
+	// TEMP: Log before starting streaming loop
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("DEBUG: Starting streaming loop")
 
 	for stream.Next() {
 		// Check if context was cancelled
@@ -151,7 +168,30 @@ func (c *Client) streamResponse(
 			content := evt.Choices[0].Delta.Content
 			fullContent.WriteString(content)
 
+			// TEMP: Use Info level to ensure logs appear in production
+			log.Info().
+				Str("user_id", config.userID).
+				Str("raw_content", content).
+				Int("content_length", len(content)).
+				Msg("DEBUG: Received streaming content chunk")
+
 			newMessages := parser.AddChunk(content)
+
+			// TEMP: Use Info level to ensure logs appear in production
+			log.Info().
+				Str("user_id", config.userID).
+				Int("new_messages_count", len(newMessages)).
+				Int("total_msg_count", parser.MsgCount).
+				Msg("DEBUG: Parser processed chunk")
+
+			// TEMP: Use Info level to ensure logs appear in production
+			if len(newMessages) == 0 {
+				log.Info().
+					Str("user_id", config.userID).
+					Str("buffer_content", parser.GetBuffer()).
+					Int("buffer_length", len(parser.GetBuffer())).
+					Msg("DEBUG: No messages parsed from current chunk")
+			}
 
 			for i, msg := range newMessages {
 				messageIndex := parser.MsgCount - len(newMessages) + i
@@ -219,10 +259,24 @@ func (c *Client) streamResponse(
 					}
 				}
 			}
+		} else {
+			// DEBUG: Log when no choices are available
+			log.Debug().
+				Str("user_id", config.userID).
+				Msg("Stream event has no choices")
 		}
 	}
 
 	streamErr := stream.Err()
+
+	// TEMP: Use Info level to ensure logs appear in production
+	log.Info().
+		Str("user_id", config.userID).
+		Bool("has_processed_any_message", hasProcessedAnyMessage).
+		Int("full_content_length", fullContent.Len()).
+		Str("full_content", fullContent.String()).
+		Msg("DEBUG: Streaming loop completed")
+
 	if streamErr != nil {
 		log.Error().
 			Err(streamErr).
@@ -248,6 +302,24 @@ func (c *Client) streamResponse(
 			Err(streamErr).
 			Str("user_id", config.userID).
 			Msg("Partial streaming failure - attempting to finalize response")
+	}
+
+	// CRITICAL FIX: If no messages were processed during streaming, this is a problem
+	// The response should not be considered successful if no messages were sent to the user
+	if !hasProcessedAnyMessage && fullContent.Len() > 0 {
+		contentSample := fullContent.String()
+		if len(contentSample) > 200 {
+			contentSample = contentSample[:200]
+		}
+
+		log.Error().
+			Str("user_id", config.userID).
+			Int("content_length", fullContent.Len()).
+			Str("content_sample", contentSample).
+			Msg("CRITICAL: Content received but no messages were processed - this indicates parser failure")
+
+		// Return error to trigger fallback response
+		return errors.New("streaming content received but no messages were parsed and sent")
 	}
 
 	// Try to finalize the streaming response
