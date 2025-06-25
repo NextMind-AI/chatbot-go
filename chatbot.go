@@ -107,14 +107,14 @@ func (c *Chatbot) Start(port string) {
 
 // ToolFunc represents a tool function with parameter metadata
 type ToolFunc struct {
-	Fn             interface{}
+	Fn             any
 	ParameterNames []string
 	ParameterDescs []string
 }
 
 // CreateTool creates a tool from a function with automatic type inference
 // You can provide just a function, or use WithParams to add parameter names and descriptions
-func CreateTool(name, description string, fn interface{}) (Tool, error) {
+func CreateTool(name, description string, fn any) (Tool, error) {
 	var toolFunc ToolFunc
 
 	switch v := fn.(type) {
@@ -167,7 +167,7 @@ func CreateTool(name, description string, fn interface{}) (Tool, error) {
 }
 
 // WithParams wraps a function with parameter metadata
-func WithParams(fn interface{}, names []string, descriptions []string) ToolFunc {
+func WithParams(fn any, names []string, descriptions []string) ToolFunc {
 	return ToolFunc{
 		Fn:             fn,
 		ParameterNames: names,
@@ -469,7 +469,7 @@ func convertToStruct(value any, targetType reflect.Type) (reflect.Value, error) 
 }
 
 // CreateSimpleTool is a convenience function for the most common case
-func CreateSimpleTool(name, description string, fn interface{}) Tool {
+func CreateSimpleTool(name, description string, fn any) Tool {
 	tool, err := CreateTool(name, description, fn)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create tool %s: %v", name, err))
