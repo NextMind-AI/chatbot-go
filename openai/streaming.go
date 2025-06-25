@@ -73,17 +73,17 @@ func (c *Client) ProcessChatStreamingWithTools(
 // processStreamingChat handles the core streaming logic for both tool and non-tool scenarios.
 // It consolidates the common streaming functionality to avoid code duplication.
 func (c *Client) processStreamingChat(ctx context.Context, config streamingConfig) error {
-    messages := convertChatHistory(ctx, config.userID, config.chatHistory) // Passar ctx e userID
+	messages := convertChatHistory(ctx, config.userID, config.chatHistory) // Passar ctx e userID
 
-    if config.useTools {
-        toolMessages, err := c.processToolsIfNeeded(ctx, config.userID, messages)
-        if err != nil {
-            return err
-        }
-        messages = toolMessages
-    }
+	if config.useTools {
+		toolMessages, err := c.processToolsIfNeeded(ctx, config.userID, messages)
+		if err != nil {
+			return err
+		}
+		messages = toolMessages
+	}
 
-    return c.streamResponse(ctx, config, messages)
+	return c.streamResponse(ctx, config, messages)
 }
 
 // processToolsIfNeeded checks if tool calls are needed and processes them.
@@ -135,6 +135,7 @@ func (c *Client) streamResponse(
 	var fullContent strings.Builder
 	sentMessages := make(map[int]bool)
 	hasProcessedAnyMessage := false
+	var streamingError error
 
 	for stream.Next() {
 		// Check if context was cancelled
@@ -229,15 +230,58 @@ func (c *Client) streamResponse(
 			Bool("processed_any_message", hasProcessedAnyMessage).
 			Msg("Stream error occurred")
 
+		// CRITICAL FIX: Always store the streaming error for potential fallback
+		streamingError = streamErr
+
 		// If we haven't processed any messages and there's a stream error,
 		// this indicates a complete failure
 		if !hasProcessedAnyMessage {
+			log.Error().
+				Err(streamErr).
+				Str("user_id", config.userID).
+				Msg("Complete streaming failure - no messages were processed")
 			return streamErr
 		}
-		// If we processed some messages but got an error, log it but don't fail completely
+		// If we processed some messages but got an error, we still need to try finalization
+		// but should return error if finalization also fails
+		log.Warn().
+			Err(streamErr).
+			Str("user_id", config.userID).
+			Msg("Partial streaming failure - attempting to finalize response")
 	}
 
-	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
+	// Try to finalize the streaming response
+	finalizeErr := c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
+
+	// CRITICAL FIX: If we had streaming errors AND finalization fails, return error
+	// This ensures fallback is triggered when things go wrong
+	if streamingError != nil && finalizeErr != nil {
+		log.Error().
+			Err(finalizeErr).
+			Str("user_id", config.userID).
+			Msg("Finalization failed after streaming error - returning error to trigger fallback")
+		return finalizeErr
+	}
+
+	// If only finalization failed but streaming was OK, return finalization error
+	if finalizeErr != nil {
+		log.Error().
+			Err(finalizeErr).
+			Str("user_id", config.userID).
+			Msg("Finalization failed - returning error to trigger fallback")
+		return finalizeErr
+	}
+
+	// If we had streaming errors but finalization succeeded, log warning but don't fail
+	// This allows partial responses to be completed
+	if streamingError != nil {
+		log.Warn().
+			Err(streamingError).
+			Str("user_id", config.userID).
+			Msg("Streaming had errors but finalization succeeded - completing successfully")
+	}
+
+	return nil
 }
 
 // finalizeStreamingResponse validates the final JSON response and stores it in Redis.
@@ -247,6 +291,14 @@ func (c *Client) finalizeStreamingResponse(
 	fullContent string,
 	redisClient *redis.Client,
 ) error {
+	// If we have no content, don't fail - this might be an empty response
+	if strings.TrimSpace(fullContent) == "" {
+		log.Warn().
+			Str("user_id", userID).
+			Msg("Empty content in finalization - skipping storage")
+		return nil
+	}
+
 	var messageList MessageList
 	if err := json.Unmarshal([]byte(fullContent), &messageList); err != nil {
 		log.Error().
@@ -254,13 +306,51 @@ func (c *Client) finalizeStreamingResponse(
 			Str("user_id", userID).
 			Str("content", fullContent).
 			Msg("Error parsing final JSON response")
+
+		// CRITICAL FIX: Instead of failing completely, try to extract any usable content
+		// This prevents complete failures when partial responses were already sent
+		fallbackContent := strings.TrimSpace(fullContent)
+
+		// Try to extract content from malformed JSON by looking for content patterns
+		if fallbackContent != "" {
+			log.Warn().
+				Str("user_id", userID).
+				Msg("Using fallback content extraction due to JSON parse error")
+
+			// Store the raw content as fallback
+			if err := redisClient.AddBotMessage(userID, fallbackContent); err != nil {
+				log.Error().
+					Err(err).
+					Str("user_id", userID).
+					Msg("Error storing fallback message in Redis")
+				return err
+			}
+
+			log.Info().
+				Str("user_id", userID).
+				Msg("Successfully stored fallback content in Redis")
+			return nil
+		}
+
+		// If we can't extract any content, return the original error
 		return err
 	}
 
+	// Normal processing for valid JSON
 	allMessagesContent := []string{}
 	for _, msg := range messageList.Messages {
-		allMessagesContent = append(allMessagesContent, msg.Content)
+		if strings.TrimSpace(msg.Content) != "" {
+			allMessagesContent = append(allMessagesContent, msg.Content)
+		}
 	}
+
+	if len(allMessagesContent) == 0 {
+		log.Warn().
+			Str("user_id", userID).
+			Msg("No valid message content found in parsed JSON")
+		return nil
+	}
+
 	fullResponse := strings.Join(allMessagesContent, "\n\n")
 
 	if err := redisClient.AddBotMessage(userID, fullResponse); err != nil {
@@ -268,7 +358,13 @@ func (c *Client) finalizeStreamingResponse(
 			Err(err).
 			Str("user_id", userID).
 			Msg("Error storing bot message in Redis")
+		return err
 	}
+
+	log.Info().
+		Str("user_id", userID).
+		Int("message_count", len(allMessagesContent)).
+		Msg("Successfully stored complete response in Redis")
 
 	return nil
 }

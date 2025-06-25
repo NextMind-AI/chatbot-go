@@ -71,18 +71,18 @@ func (dm *DebounceManager) ProcessMessage(userID string, processor func()) {
 			Str("user_id", userID).
 			Msg("Debounce timer expired - processing message")
 
-		// Clean up the timer from the map BEFORE executing processor
-		// to avoid race conditions
-		dm.cleanupTimer(userID)
-
-		// Increment processed count
+		// Increment processed count BEFORE processing
 		dm.mutex.Lock()
 		dm.processedCount++
 		dm.mutex.Unlock()
 
-		// Execute the processor function
+		// Execute the processor function with proper error handling
 		// Wrap in a defer/recover to ensure we handle any panics
 		defer func() {
+			// CRITICAL FIX: Clean up the timer AFTER execution, not before
+			// This prevents race conditions where a new message arrives during processing
+			dm.cleanupTimer(userID)
+
 			if r := recover(); r != nil {
 				log.Error().
 					Str("user_id", userID).
@@ -91,7 +91,16 @@ func (dm *DebounceManager) ProcessMessage(userID string, processor func()) {
 			}
 		}()
 
+		// Add better logging for processor execution
+		log.Info().
+			Str("user_id", userID).
+			Msg("Starting processor execution")
+
 		processor()
+
+		log.Info().
+			Str("user_id", userID).
+			Msg("Completed processor execution")
 	})
 
 	// Store the timer and cancel function

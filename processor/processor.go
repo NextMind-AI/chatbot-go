@@ -52,6 +52,20 @@ func (mp *MessageProcessor) ProcessMessage(message InboundMessage) {
 			Err(err).
 			Str("message_uuid", message.MessageUUID).
 			Msg("Error processing message content")
+
+		// CRITICAL FIX: Send error response to user instead of silent failure
+		// This ensures the user knows something went wrong instead of being left hanging
+		errorResponse := "I'm sorry, I couldn't process your message. Please try sending it again."
+		if _, sendErr := mp.vonageClient.SendWhatsAppTextMessage(userID, errorResponse); sendErr != nil {
+			log.Error().
+				Err(sendErr).
+				Str("user_id", userID).
+				Msg("Failed to send error response for message processing failure")
+		} else {
+			log.Info().
+				Str("user_id", userID).
+				Msg("Sent error response for message processing failure")
+		}
 		return
 	}
 
@@ -60,7 +74,18 @@ func (mp *MessageProcessor) ProcessMessage(message InboundMessage) {
 			Err(err).
 			Str("user_id", userID).
 			Msg("Error storing user message")
+
+		// Even if storage fails, we should still try to process the message
+		// The user shouldn't be left without a response
+		log.Warn().
+			Str("user_id", userID).
+			Msg("Continuing with message processing despite storage error")
 	}
+
+	log.Info().
+		Str("user_id", userID).
+		Str("message_text", processedMsg.Text).
+		Msg("Successfully processed and stored message - scheduling AI processing")
 
 	// Use debounce manager to schedule AI processing after 15 seconds
 	// If another message comes within 15 seconds, this timer will be reset
@@ -106,13 +131,18 @@ func (mp *MessageProcessor) processMessageWithAI(userID string) {
 		return
 	}
 
+	log.Info().
+		Str("user_id", userID).
+		Int("chat_history_count", len(chatHistory)).
+		Msg("Starting OpenAI processing")
+
 	if err := mp.processWithAI(ctx, userID, chatHistory); err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", userID).
 			Msg("Error processing with AI - sending fallback response")
 
-		// Instead of just returning, send a fallback response to the user
+		// Always send a fallback response when AI processing fails
 		mp.sendFallbackResponse(userID)
 		return
 	}
@@ -121,7 +151,7 @@ func (mp *MessageProcessor) processMessageWithAI(userID string) {
 		return
 	}
 
-	log.Info().Str("user_id", userID).Msg("Completed debounced message processing")
+	log.Info().Str("user_id", userID).Msg("Successfully completed debounced message processing")
 }
 
 // sendFallbackResponse sends a fallback message to the user when AI processing fails
