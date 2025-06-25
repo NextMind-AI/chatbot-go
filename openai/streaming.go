@@ -316,10 +316,23 @@ func (c *Client) streamResponse(
 			Str("user_id", config.userID).
 			Int("content_length", fullContent.Len()).
 			Str("content_sample", contentSample).
-			Msg("CRITICAL: Content received but no messages were processed - this indicates parser failure")
+			Msg("CRITICAL: Content received but no messages were processed - trying fallback parsing")
 
-		// Return error to trigger fallback response
-		return errors.New("streaming content received but no messages were parsed and sent")
+		// FALLBACK: Try to parse the complete JSON as a MessageList
+		if err := c.tryFallbackParsing(config, fullContent.String()); err != nil {
+			log.Error().
+				Err(err).
+				Str("user_id", config.userID).
+				Msg("Fallback parsing also failed - returning error to trigger system fallback")
+
+			// Return error to trigger fallback response
+			return errors.New("streaming content received but no messages were parsed and sent")
+		}
+
+		// If fallback parsing succeeded, don't return an error
+		log.Info().
+			Str("user_id", config.userID).
+			Msg("Fallback parsing succeeded - messages sent via WhatsApp")
 	}
 
 	// Try to finalize the streaming response
@@ -437,6 +450,85 @@ func (c *Client) finalizeStreamingResponse(
 		Str("user_id", userID).
 		Int("message_count", len(allMessagesContent)).
 		Msg("Successfully stored complete response in Redis")
+
+	return nil
+}
+
+// tryFallbackParsing attempts to parse the complete JSON response as a MessageList
+// and send messages via WhatsApp when the streaming parser fails
+func (c *Client) tryFallbackParsing(config streamingConfig, fullContent string) error {
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Attempting fallback parsing of complete JSON response")
+
+	var messageList MessageList
+	if err := json.Unmarshal([]byte(fullContent), &messageList); err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", config.userID).
+			Str("content", fullContent).
+			Msg("Failed to parse complete JSON as MessageList")
+		return err
+	}
+
+	log.Info().
+		Str("user_id", config.userID).
+		Int("message_count", len(messageList.Messages)).
+		Msg("Successfully parsed MessageList - sending messages via WhatsApp")
+
+	// Send each message via WhatsApp
+	for i, msg := range messageList.Messages {
+		log.Info().
+			Str("user_id", config.userID).
+			Int("message_index", i).
+			Str("content", msg.Content).
+			Str("type", msg.Type).
+			Msg("Sending fallback parsed message")
+
+		if msg.Type == "audio" {
+			audioURL, err := config.elevenLabsClient.ConvertTextToSpeechDefault(msg.Content)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("user_id", config.userID).
+					Str("content", msg.Content).
+					Msg("Error converting text to speech in fallback")
+				continue
+			}
+
+			response, err := config.vonageClient.SendWhatsAppAudioMessage(config.toNumber, audioURL)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("user_id", config.userID).
+					Str("to", config.toNumber).
+					Str("audio_url", audioURL).
+					Msg("Error sending WhatsApp audio message in fallback")
+			} else {
+				log.Info().
+					Str("user_id", config.userID).
+					Str("message_uuid", response.MessageUUID).
+					Str("audio_url", audioURL).
+					Msg("Sent fallback audio message via Vonage")
+			}
+		} else {
+			response, err := config.vonageClient.SendWhatsAppTextMessage(config.toNumber, msg.Content)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("user_id", config.userID).
+					Str("to", config.toNumber).
+					Str("content", msg.Content).
+					Msg("Error sending WhatsApp text message in fallback")
+			} else {
+				log.Info().
+					Str("user_id", config.userID).
+					Str("message_uuid", response.MessageUUID).
+					Str("content", msg.Content).
+					Msg("Sent fallback text message via Vonage")
+			}
+		}
+	}
 
 	return nil
 }

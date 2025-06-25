@@ -3,6 +3,8 @@ package openai
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 // StreamingJSONParser handles incremental parsing of JSON responses from OpenAI's streaming API.
@@ -42,39 +44,82 @@ func (p *StreamingJSONParser) parseNewMessages() []Message {
 	content := p.buffer.String()
 	var parsedMessages []Message
 
+	// TEMP: Add debug logging to understand parser behavior
+	log.Info().
+		Int("buffer_length", len(content)).
+		Str("buffer_content", content).
+		Int("last_parsed_pos", p.lastParsedPos).
+		Bool("found_messages", p.foundMessages).
+		Msg("PARSER DEBUG: Starting parseNewMessages")
+
 	if !p.foundMessages && strings.Contains(content, `"messages":[`) {
 		p.foundMessages = true
+		log.Info().Msg("PARSER DEBUG: Found messages array in content")
 	}
 
 	searchContent := content[p.lastParsedPos:]
+
+	// TEMP: Add debug logging for search content
+	log.Info().
+		Str("search_content", searchContent).
+		Int("search_content_length", len(searchContent)).
+		Msg("PARSER DEBUG: Search content for parsing")
 
 	for {
 		startIdx := strings.Index(searchContent, `{"content":`)
 		if startIdx == -1 {
 			startIdx = strings.Index(searchContent, `{"type":`)
 			if startIdx == -1 {
+				log.Info().
+					Str("search_content", searchContent).
+					Msg("PARSER DEBUG: No message start patterns found")
 				break
 			}
 		}
 
 		fullStartIdx := p.lastParsedPos + startIdx
 
+		log.Info().
+			Int("full_start_idx", fullStartIdx).
+			Msg("PARSER DEBUG: Found potential message start")
+
 		endIdx := p.findMessageEnd(content, fullStartIdx)
 		if endIdx == -1 {
+			log.Info().
+				Int("full_start_idx", fullStartIdx).
+				Msg("PARSER DEBUG: Could not find message end")
 			break
 		}
 
 		messageJSON := content[fullStartIdx : endIdx+1]
 
+		log.Info().
+			Str("message_json", messageJSON).
+			Msg("PARSER DEBUG: Attempting to parse message JSON")
+
 		var msg Message
 		if err := json.Unmarshal([]byte(messageJSON), &msg); err == nil {
 			p.MsgCount++
 			parsedMessages = append(parsedMessages, msg)
+			log.Info().
+				Str("parsed_content", msg.Content).
+				Str("parsed_type", msg.Type).
+				Int("msg_count", p.MsgCount).
+				Msg("PARSER DEBUG: Successfully parsed message")
+		} else {
+			log.Info().
+				Err(err).
+				Str("message_json", messageJSON).
+				Msg("PARSER DEBUG: Failed to unmarshal message JSON")
 		}
 
 		p.lastParsedPos = endIdx + 1
 		searchContent = content[p.lastParsedPos:]
 	}
+
+	log.Info().
+		Int("parsed_messages_count", len(parsedMessages)).
+		Msg("PARSER DEBUG: Completed parseNewMessages")
 
 	return parsedMessages
 }
