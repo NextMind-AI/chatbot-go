@@ -83,7 +83,7 @@ func (c *Client) DetermineSleepTime(
 		ctx,
 		openai.ChatCompletionNewParams{
 			Messages: messages,
-			Model:    openai.ChatModelGPT4_1Mini,
+			Model:    c.model,
 			Tools:    []openai.ChatCompletionToolParam{sleepTool},
 			ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{
 				OfChatCompletionNamedToolChoice: &openai.ChatCompletionNamedToolChoiceParam{

@@ -33,6 +33,7 @@ type PromptGenerator = openai.PromptGenerator
 type Config struct {
 	PromptGenerator PromptGenerator
 	Tools           []Tool
+	Model           string // OpenAI model to use
 }
 
 // Chatbot represents the main chatbot instance
@@ -62,6 +63,7 @@ func New(cfg Config) *Chatbot {
 		httpClient,
 		cfg.PromptGenerator,
 		cfg.Tools,
+		cfg.Model,
 	)
 
 	redisClient := redis.NewClient(

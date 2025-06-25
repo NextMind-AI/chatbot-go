@@ -161,6 +161,7 @@ Sempre responda de forma útil e direta às perguntas do usuário.`
 	config := chatbot.Config{
 		PromptGenerator: promptGenerator,
 		Tools:           []chatbot.Tool{weatherTool, timeTool, translateTool, profileTool},
+		Model:           "gpt-4.1-mini",
 	}
 
 	log.Println("Starting chatbot with simplified tool API...")

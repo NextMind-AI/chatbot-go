@@ -6,6 +6,7 @@ A powerful and flexible Go package for creating WhatsApp chatbots with configura
 
 - **Automatic Type Inference**: Just write normal Go functions - parameter types are automatically detected
 - **Dynamic Prompt Generation**: Create personalized prompts based on user context (name and phone)
+- **Configurable AI Models**: Choose from any OpenAI model
 - **Custom Tools**: Define functions that the AI can call to extend its capabilities
 - **WhatsApp Integration**: Built-in support for WhatsApp via Vonage API
 - **Audio Support**: Text-to-speech and speech-to-text via ElevenLabs

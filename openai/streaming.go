@@ -102,7 +102,7 @@ func (c *Client) streamResponse(
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
 			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{JSONSchema: schemaParam},
 		},
-		Model: openai.ChatModelGPT4_1Mini,
+		Model: c.model,
 	}
 
 	// Add tools if any are defined
@@ -182,7 +182,7 @@ func (c *Client) streamResponseWithoutTools(
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
 			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{JSONSchema: schemaParam},
 		},
-		Model: openai.ChatModelGPT4_1Mini,
+		Model: c.model,
 	})
 
 	parser := NewStreamingJSONParser()
@@ -263,7 +263,7 @@ func (c *Client) handleToolCalls(
 	completion, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Messages: messages,
 		Tools:    tools,
-		Model:    openai.ChatModelGPT4_1Mini,
+		Model:    c.model,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get completion with tools: %w", err)

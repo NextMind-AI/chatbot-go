@@ -26,11 +26,12 @@ type Client struct {
 	client          *openai.Client
 	promptGenerator PromptGenerator
 	tools           []Tool
+	model           string
 }
 
 // NewClient creates a new OpenAI client wrapper with the specified API key and HTTP client.
 // The HTTP client allows for custom configuration such as timeouts and proxy settings.
-func NewClient(apiKey string, httpClient http.Client, promptGenerator PromptGenerator, tools []Tool) Client {
+func NewClient(apiKey string, httpClient http.Client, promptGenerator PromptGenerator, tools []Tool, model string) Client {
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
 		option.WithHTTPClient(&httpClient),
@@ -51,10 +52,16 @@ func NewClient(apiKey string, httpClient http.Client, promptGenerator PromptGene
 		}
 	}
 
+	// Use default model if none provided
+	if model == "" {
+		model = openai.ChatModelGPT4_1Mini
+	}
+
 	openaiClient := Client{
 		client:          &client,
 		promptGenerator: promptGenerator,
 		tools:           tools,
+		model:           model,
 	}
 
 	return openaiClient
