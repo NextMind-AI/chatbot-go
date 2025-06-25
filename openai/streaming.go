@@ -110,6 +110,10 @@ func (c *Client) streamResponse(
 		params.Tools = tools
 	}
 
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Starting new streaming response")
+
 	stream := c.client.Chat.Completions.NewStreaming(ctx, params)
 
 	parser := NewStreamingJSONParser()
@@ -121,14 +125,28 @@ func (c *Client) streamResponse(
 
 	go func() {
 		defer close(done)
+		log.Info().
+			Str("user_id", config.userID).
+			Msg("Started goroutine for sequential message sending")
 		c.sendMessagesSequentially(ctx, config, messageQueue)
+		log.Info().
+			Str("user_id", config.userID).
+			Msg("Goroutine for sequential message sending finished")
 	}()
 
 	for stream.Next() {
 		evt := stream.Current()
+		log.Debug().
+			Str("user_id", config.userID).
+			Msg("Received new stream event")
 		if len(evt.Choices) > 0 {
 			content := evt.Choices[0].Delta.Content
 			fullContent.WriteString(content)
+
+			log.Debug().
+				Str("user_id", config.userID).
+				Str("content_chunk", content).
+				Msg("Appended content chunk to fullContent")
 
 			newMessages := parser.AddChunk(content)
 
@@ -149,7 +167,14 @@ func (c *Client) streamResponse(
 						message: msg,
 						index:   messageIndex,
 					}:
+						log.Debug().
+							Str("user_id", config.userID).
+							Int("message_index", messageIndex).
+							Msg("Message sent to messageQueue")
 					case <-ctx.Done():
+						log.Warn().
+							Str("user_id", config.userID).
+							Msg("Context done while sending to messageQueue, closing queue")
 						close(messageQueue)
 						<-done
 						return ctx.Err()
@@ -159,13 +184,23 @@ func (c *Client) streamResponse(
 		}
 	}
 
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Stream finished, closing messageQueue")
 	close(messageQueue)
 	<-done
 
 	if err := stream.Err(); err != nil {
+		log.Error().
+			Str("user_id", config.userID).
+			Err(err).
+			Msg("Stream encountered error")
 		return err
 	}
 
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Finalizing streaming response")
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
 }
 
