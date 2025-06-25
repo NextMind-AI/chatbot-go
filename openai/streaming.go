@@ -212,6 +212,10 @@ func (c *Client) streamResponseWithoutTools(
 ) error {
 	schemaParam := createSchemaParam()
 
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Starting new streaming response (without tools)")
+
 	stream := c.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
 		Messages: messages,
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
@@ -229,14 +233,28 @@ func (c *Client) streamResponseWithoutTools(
 
 	go func() {
 		defer close(done)
+		log.Info().
+			Str("user_id", config.userID).
+			Msg("Started goroutine for sequential message sending (without tools)")
 		c.sendMessagesSequentially(ctx, config, messageQueue)
+		log.Info().
+			Str("user_id", config.userID).
+			Msg("Goroutine for sequential message sending finished (without tools)")
 	}()
 
 	for stream.Next() {
 		evt := stream.Current()
+		log.Debug().
+			Str("user_id", config.userID).
+			Msg("Received new stream event (without tools)")
 		if len(evt.Choices) > 0 {
 			content := evt.Choices[0].Delta.Content
 			fullContent.WriteString(content)
+
+			log.Debug().
+				Str("user_id", config.userID).
+				Str("content_chunk", content).
+				Msg("Appended content chunk to fullContent (without tools)")
 
 			newMessages := parser.AddChunk(content)
 
@@ -250,14 +268,21 @@ func (c *Client) streamResponseWithoutTools(
 						Int("message_index", messageIndex).
 						Str("content", msg.Content).
 						Str("type", msg.Type).
-						Msg("Queueing streamed message for sequential sending")
+						Msg("Queueing streamed message for sequential sending (without tools)")
 
 					select {
 					case messageQueue <- messageWithIndex{
 						message: msg,
 						index:   messageIndex,
 					}:
+						log.Debug().
+							Str("user_id", config.userID).
+							Int("message_index", messageIndex).
+							Msg("Message sent to messageQueue (without tools)")
 					case <-ctx.Done():
+						log.Warn().
+							Str("user_id", config.userID).
+							Msg("Context done while sending to messageQueue (without tools), closing queue")
 						close(messageQueue)
 						<-done
 						return ctx.Err()
@@ -267,13 +292,23 @@ func (c *Client) streamResponseWithoutTools(
 		}
 	}
 
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Stream finished, closing messageQueue (without tools)")
 	close(messageQueue)
 	<-done
 
 	if err := stream.Err(); err != nil {
+		log.Error().
+			Str("user_id", config.userID).
+			Err(err).
+			Msg("Stream encountered error (without tools)")
 		return err
 	}
 
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Finalizing streaming response (without tools)")
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
 }
 
@@ -488,6 +523,11 @@ func (c *Client) finalizeStreamingResponse(
 	fullContent string,
 	redisClient *redis.Client,
 ) error {
+	log.Info().
+		Str("user_id", userID).
+		Int("content_length", len(fullContent)).
+		Msg("Finalizing streaming response - validating JSON")
+
 	var messageList MessageList
 	if err := json.Unmarshal([]byte(fullContent), &messageList); err != nil {
 		log.Error().
@@ -498,18 +538,39 @@ func (c *Client) finalizeStreamingResponse(
 		return err
 	}
 
+	log.Info().
+		Str("user_id", userID).
+		Int("message_count", len(messageList.Messages)).
+		Msg("Successfully parsed JSON response")
+
 	allMessagesContent := []string{}
-	for _, msg := range messageList.Messages {
+	for i, msg := range messageList.Messages {
 		allMessagesContent = append(allMessagesContent, msg.Content)
+		log.Debug().
+			Str("user_id", userID).
+			Int("message_index", i).
+			Str("content", msg.Content).
+			Str("type", msg.Type).
+			Msg("Processing message for Redis storage")
 	}
 	fullResponse := strings.Join(allMessagesContent, "\n\n")
+
+	log.Info().
+		Str("user_id", userID).
+		Int("final_response_length", len(fullResponse)).
+		Msg("Storing bot message in Redis")
 
 	if err := redisClient.AddBotMessage(userID, fullResponse); err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", userID).
 			Msg("Error storing bot message in Redis")
+		return err
 	}
+
+	log.Info().
+		Str("user_id", userID).
+		Msg("Successfully stored bot message in Redis")
 
 	return nil
 }

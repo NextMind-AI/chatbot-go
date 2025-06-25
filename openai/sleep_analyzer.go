@@ -196,5 +196,22 @@ func (c *Client) ExecuteSleepAndRespond(
 	}
 
 	// Step 4: Generate the actual response using streaming (without tools in the streaming call)
-	return c.streamResponseWithoutTools(ctx, config, messages)
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Starting response generation with streaming")
+
+	err = c.streamResponseWithoutTools(ctx, config, messages)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", config.userID).
+			Msg("Error in streaming response generation")
+		return err
+	}
+
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Completed message processing")
+
+	return nil
 }
