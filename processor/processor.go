@@ -32,9 +32,8 @@ func NewMessageProcessor(vonageClient vonage.Client, redisClient redis.Client, o
 	}
 }
 
-// ProcessMessage agora distingue entre execução imediata (COM tools) e debounce (SEM tools)
 func (mp *MessageProcessor) ProcessMessage(message InboundMessage) {
-	log.Info().Str("message_uuid", message.MessageUUID).Msg("Received message - processing immediately WITH tools")
+	log.Info().Str("message_uuid", message.MessageUUID).Msg("Received message - scheduling for debounced processing")
 
 	userID := message.From
 
@@ -63,134 +62,91 @@ func (mp *MessageProcessor) ProcessMessage(message InboundMessage) {
 			Msg("Error storing user message")
 	}
 
-	// EXECUÇÃO IMEDIATA COM TOOLS
-	go func() {
-		ctx := mp.executionManager.Start(userID + "_immediate")
-		defer mp.executionManager.Cleanup(userID+"_immediate", ctx)
-
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
-
-		chatHistory, err := mp.getChatHistory(userID)
-		if err != nil {
-			log.Error().Err(err).Str("user_id", userID).Msg("Error getting chat history for immediate processing")
-			chatHistory = []redis.ChatMessage{}
-		}
-
-		log.Info().Str("user_id", userID).Msg("Processando mensagem imediatamente COM tools")
-
-		if err := mp.processWithAIWithTools(ctx, userID, chatHistory); err != nil {
-			log.Error().
-				Err(err).
-				Str("user_id", userID).
-				Msg("Error in immediate processing with tools")
-		}
-	}()
-
-	// DEBOUNCE SEM TOOLS (apenas para contexto adicional)
+	// Use debounce manager to schedule AI processing after 15 seconds
+	// If another message comes within 15 seconds, this timer will be reset
 	mp.debounceManager.ProcessMessage(userID, func() {
-		mp.processMessageWithAIWithoutTools(userID)
+		mp.processMessageWithAI(userID)
 	})
 }
 
-// processMessageWithAIWithoutTools - versão do debounce SEM tools
-func (mp *MessageProcessor) processMessageWithAIWithoutTools(userID string) {
-	log.Info().Str("user_id", userID).Msg("Starting AI processing after debounce period WITHOUT tools")
+// processMessageWithAI handles the actual AI processing after the debounce period
+func (mp *MessageProcessor) processMessageWithAI(userID string) {
+	log.Info().Str("user_id", userID).Msg("Starting AI processing after debounce period")
 
-	ctx := mp.executionManager.Start(userID + "_debounce")
-	defer mp.executionManager.Cleanup(userID+"_debounce", ctx)
+	// Start execution context for this processing
+	ctx := mp.executionManager.Start(userID)
+	defer mp.executionManager.Cleanup(userID, ctx)
 
-	ctx, timeoutCancel := context.WithTimeout(ctx, 3*time.Minute)
+	// Add a timeout to prevent indefinite hanging
+	ctx, timeoutCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer timeoutCancel()
 
+	// Add a recovery mechanism to ensure we always respond to the user
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error().
 				Str("user_id", userID).
 				Interface("panic", r).
-				Msg("Panic occurred during debounce AI processing")
+				Msg("Panic occurred during AI processing - sending fallback response")
+			mp.sendFallbackResponse(userID)
 		}
 	}()
 
+	// Get the latest chat history
 	chatHistory, err := mp.getChatHistory(userID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", userID).
-			Msg("Error retrieving chat history for debounce")
+			Msg("Error retrieving chat history")
+		chatHistory = []redis.ChatMessage{}
+	}
+
+	if mp.cancelled(ctx, userID, "before OpenAI call") {
 		return
 	}
 
-	if mp.cancelled(ctx, userID, "before debounce OpenAI call") {
-		return
-	}
-
-	// Processar SEM TOOLS para evitar duplicação
-	if err := mp.processWithAIWithoutTools(ctx, userID, chatHistory); err != nil {
+	if err := mp.processWithAI(ctx, userID, chatHistory); err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", userID).
-			Msg("Error processing debounce without tools")
+			Msg("Error processing with AI - sending fallback response")
+
+		// Instead of just returning, send a fallback response to the user
+		mp.sendFallbackResponse(userID)
 		return
 	}
 
-	log.Info().Str("user_id", userID).Msg("Completed debounce processing WITHOUT tools")
+	if mp.cancelled(ctx, userID, "after OpenAI call") {
+		return
+	}
+
+	log.Info().Str("user_id", userID).Msg("Completed debounced message processing")
 }
 
-// processWithAIWithTools - versão COM tools (execução imediata)
-func (mp *MessageProcessor) processWithAIWithTools(ctx context.Context, userID string, chatHistory []redis.ChatMessage) error {
-	log.Info().Str("user_id", userID).Msg("Processing with AI WITH tools")
+// sendFallbackResponse sends a fallback message to the user when AI processing fails
+func (mp *MessageProcessor) sendFallbackResponse(userID string) {
+	fallbackMessage := "I'm sorry, I'm experiencing some technical difficulties. Please try sending your message again."
 
-	defer func() {
-		if r := recover(); r != nil {
+	// Try to send the fallback message
+	if _, err := mp.vonageClient.SendWhatsAppTextMessage(userID, fallbackMessage); err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", userID).
+			Msg("Failed to send fallback response")
+	} else {
+		log.Info().
+			Str("user_id", userID).
+			Msg("Sent fallback response to user")
+
+		// Store the fallback message in chat history
+		if err := mp.redisClient.AddBotMessage(userID, fallbackMessage); err != nil {
 			log.Error().
+				Err(err).
 				Str("user_id", userID).
-				Interface("panic", r).
-				Msg("Panic recovered in processWithAIWithTools")
+				Msg("Error storing fallback message in Redis")
 		}
-	}()
-
-	toNumber := userID
-	return mp.openaiClient.ProcessChatStreamingWithTools(
-		ctx,
-		userID,
-		chatHistory,
-		&mp.vonageClient,
-		&mp.redisClient,
-		&mp.elevenLabsClient,
-		toNumber,
-	)
-}
-
-// processWithAIWithoutTools - versão SEM tools (debounce)
-func (mp *MessageProcessor) processWithAIWithoutTools(ctx context.Context, userID string, chatHistory []redis.ChatMessage) error {
-	log.Info().Str("user_id", userID).Msg("Processing with AI WITHOUT tools (debounce)")
-
-	defer func() {
-		if r := recover(); r != nil {
-			log.Error().
-				Str("user_id", userID).
-				Interface("panic", r).
-				Msg("Panic recovered in processWithAIWithoutTools")
-		}
-	}()
-
-	toNumber := userID
-	return mp.openaiClient.ProcessChatStreamingWithoutTools(
-		ctx,
-		userID,
-		chatHistory,
-		&mp.vonageClient,
-		&mp.redisClient,
-		&mp.elevenLabsClient,
-		toNumber,
-	)
-}
-
-// Manter a função original processMessageWithAI como fallback
-func (mp *MessageProcessor) processMessageWithAI(userID string) {
-	// Redirecionar para a versão sem tools
-	mp.processMessageWithAIWithoutTools(userID)
+	}
 }
 
 // GetProcessorStatus returns the current status of the processor for monitoring

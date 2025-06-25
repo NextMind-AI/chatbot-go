@@ -1,11 +1,7 @@
 package server
 
 import (
-	"chatbot/openai"
 	"chatbot/processor"
-	"encoding/json"
-	"net/http"
-	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog/log"
@@ -36,13 +32,4 @@ func (s *Server) inboundMessageHandler(c fiber.Ctx) error {
 func (s *Server) healthCheckHandler(c fiber.Ctx) error {
 	status := s.messageProcessor.GetProcessorStatus()
 	return c.JSON(status)
-}
-
-func (h *Handler) handleCacheStatus(w http.ResponseWriter, r *http.Request) {
-	stats := openai.GetCacheStatistics()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"cache_statistics": stats,
-		"timestamp":        time.Now().Unix(),
-	})
 }

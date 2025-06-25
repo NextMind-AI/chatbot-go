@@ -3,63 +3,138 @@ package openai
 import (
 	"chatbot/trinks"
 	"context"
-	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/openai/openai-go"
 	"github.com/rs/zerolog/log"
 )
 
-// Cache global para tool calls
-var (
-	toolCallCache = make(map[string]toolCacheEntry)
-	cacheMutex    sync.RWMutex
-	cacheCleanup  = time.NewTicker(30 * time.Minute)
-)
+// ============================================================================
+// ESTRUTURAS DE DADOS
+// ============================================================================
 
-type toolCacheEntry struct {
-	response  openai.ChatCompletionMessageParamUnion
-	timestamp time.Time
-	executed  bool
+// Serviços e categorias
+type ServiceSearchRequest struct {
+	CategoriaFiltro string `json:"categoria_filtro,omitempty"`
+	MostrarResumo   bool   `json:"mostrar_resumo"`
 }
 
-func init() {
-	// Iniciar limpeza automática do cache
-	go func() {
-		for range cacheCleanup.C {
-			cleanExpiredCacheEntries()
-		}
-	}()
+type ServiceSearchResponse struct {
+	ServicosPorCategoria  map[string][]ServiceInfo   `json:"servicos_por_categoria"`
+	ResumoCategoria       map[string]CategorySummary `json:"resumo_categoria,omitempty"`
+	TotalServicos         int                        `json:"total_servicos"`
+	CategoriasDisponiveis []string                   `json:"categorias_disponiveis"`
 }
 
-func cleanExpiredCacheEntries() {
-	cacheMutex.Lock()
-	defer cacheMutex.Unlock()
-
-	now := time.Now()
-	for key, entry := range toolCallCache {
-		// Remove entradas mais antigas que 1 hora
-		if now.Sub(entry.timestamp) > time.Hour {
-			delete(toolCallCache, key)
-		}
-	}
-
-	log.Debug().Int("cache_size", len(toolCallCache)).Msg("Cache de tools limpo")
+type ServiceInfo struct {
+	ID        string  `json:"id"`
+	Nome      string  `json:"nome"`
+	Descricao string  `json:"descricao"`
+	Duracao   int     `json:"duracao"`
+	Preco     float64 `json:"preco"`
+	Visivel   bool    `json:"visivel"`
 }
 
-func generateCacheKey(userID string, toolCall openai.ChatCompletionMessageToolCall) string {
-	// Criar chave única baseada no userID, nome da função e argumentos
-	data := fmt.Sprintf("%s_%s_%s", userID, toolCall.Function.Name, toolCall.Function.Arguments)
-	hash := md5.Sum([]byte(data))
-	return fmt.Sprintf("%x", hash)
+type CategorySummary struct {
+	Quantidade   int     `json:"quantidade"`
+	PrecoMedio   float64 `json:"preco_medio"`
+	DuracaoMedia int     `json:"duracao_media"`
 }
 
-// handleToolCalls com cache implementado
+// Cadastro de cliente
+type ClientRegisterRequest struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	DDD   string `json:"ddd"`
+	Phone string `json:"phone"`
+}
+
+type ClientRegisterResponse struct {
+	Success   bool   `json:"success"`
+	ClientID  int    `json:"client_id,omitempty"`
+	Message   string `json:"message"`
+	ErrorCode string `json:"error_code,omitempty"`
+}
+
+// Verificação de cliente
+
+type ClientCheckResponse struct {
+	Exists     bool   `json:"exists"`
+	ClientID   string `json:"client_id,omitempty"`
+	ClientName string `json:"client_name,omitempty"`
+}
+
+// Agendamento
+type AppointmentRequest struct {
+	EmailCliente   string   `json:"email_cliente"`
+	IdsServicos    []string `json:"ids_servicos"`
+	ProfissionalID string   `json:"profissional_id"`
+	DataHoraInicio string   `json:"data_hora_inicio"`
+}
+
+type AppointmentResponse struct {
+	Success            bool                   `json:"success"`
+	AgendamentosFeitos []AgendamentoResultado `json:"agendamentos_feitos"`
+	Message            string                 `json:"message"`
+	ErrorCode          string                 `json:"error_code,omitempty"`
+}
+
+type AgendamentoResultado struct {
+	AppointmentID string `json:"appointment_id"`
+	ServicoNome   string `json:"servico_nome"`
+	Horario       string `json:"horario"`
+	Status        string `json:"status"`
+}
+
+// Agendamentos do cliente
+type ClientAppointmentsRequest struct {
+	ClientID string `json:"client_id"`
+}
+
+type AppointmentItem struct {
+	AppointmentID string `json:"appointment_id"`
+	ServiceID     string `json:"service_id"`
+	Date          string `json:"date"` // YYYY-MM-DD
+	Time          string `json:"time"` // HH:MM
+	Status        string `json:"status"`
+}
+
+type ClientAppointmentsResponse struct {
+	ClientID     string            `json:"client_id"`
+	Appointments []AppointmentItem `json:"appointments"`
+}
+
+// Cancelamento
+type CancelAppointmentRequest struct {
+	AppointmentID string `json:"appointment_id"`
+}
+
+type CancelAppointmentResponse struct {
+	AppointmentID string `json:"appointment_id"`
+	Status        string `json:"status"`  // e.g. "cancelled" ou "error"
+	Message       string `json:"message"` // detalhe em caso de erro
+}
+
+// Reagendamento
+type RescheduleAppointmentRequest struct {
+	AppointmentID string `json:"appointment_id"`
+	NewDate       string `json:"new_date"`
+	NewTime       string `json:"new_time"`
+}
+
+type RescheduleAppointmentResponse struct {
+	AppointmentID string `json:"appointment_id"`
+	Status        string `json:"status"`  // e.g. "rescheduled" ou "error"
+	Message       string `json:"message"` // detalhes em caso de erro
+}
+
+// ============================================================================
+// PROCESSAMENTO DE TOOLS
+// ============================================================================
+
 func (c *Client) handleToolCalls(
 	ctx context.Context,
 	userID string,
@@ -67,40 +142,9 @@ func (c *Client) handleToolCalls(
 ) ([]openai.ChatCompletionMessageParamUnion, error) {
 	var responses []openai.ChatCompletionMessageParamUnion
 
-	log.Info().
-		Str("user_id", userID).
-		Int("tool_calls_count", len(toolCalls)).
-		Msg("Processando tool calls com cache")
-
 	for _, toolCall := range toolCalls {
-		// Gerar chave única para o tool call
-		cacheKey := generateCacheKey(userID, toolCall)
-
-		// Verificar se já foi executado
-		cacheMutex.RLock()
-		cachedEntry, alreadyExecuted := toolCallCache[cacheKey]
-		cacheMutex.RUnlock()
-
-		if alreadyExecuted && cachedEntry.executed {
-			log.Info().
-				Str("user_id", userID).
-				Str("tool", toolCall.Function.Name).
-				Str("cache_key", cacheKey).
-				Msg("Tool call já executada, usando cache")
-
-			responses = append(responses, cachedEntry.response)
-			continue
-		}
-
-		// Executar tool call
 		var response openai.ChatCompletionMessageParamUnion
 		var success bool
-
-		log.Info().
-			Str("user_id", userID).
-			Str("tool", toolCall.Function.Name).
-			Str("cache_key", cacheKey).
-			Msg("Executando nova tool call")
 
 		switch toolCall.Function.Name {
 		case "register_client":
@@ -125,26 +169,15 @@ func (c *Client) handleToolCalls(
 				Msg("Tool não reconhecida")
 		}
 
-		// Armazenar no cache
-		cacheMutex.Lock()
-		toolCallCache[cacheKey] = toolCacheEntry{
-			response:  response,
-			timestamp: time.Now(),
-			executed:  success,
-		}
-		cacheMutex.Unlock()
-
 		if success {
 			log.Info().
 				Str("user_id", userID).
 				Str("tool", toolCall.Function.Name).
-				Str("cache_key", cacheKey).
-				Msg("Tool executada com sucesso e armazenada no cache")
+				Msg("Tool executada com sucesso")
 		} else {
 			log.Warn().
 				Str("user_id", userID).
 				Str("tool", toolCall.Function.Name).
-				Str("cache_key", cacheKey).
 				Msg("Falha na execução da tool")
 		}
 
@@ -152,39 +185,10 @@ func (c *Client) handleToolCalls(
 	}
 
 	if len(responses) == 0 {
-		log.Warn().
-			Str("user_id", userID).
-			Msg("Nenhuma resposta de tool foi gerada")
 		return nil, fmt.Errorf("nenhuma resposta de tool foi gerada")
 	}
 
 	return responses, nil
-}
-
-// GetCacheStatistics retorna estatísticas do cache para monitoramento
-func GetCacheStatistics() map[string]interface{} {
-	cacheMutex.RLock()
-	defer cacheMutex.RUnlock()
-
-	totalEntries := len(toolCallCache)
-	executedEntries := 0
-
-	for _, entry := range toolCallCache {
-		if entry.executed {
-			executedEntries++
-		}
-	}
-
-	hitRate := float64(0)
-	if totalEntries > 0 {
-		hitRate = float64(executedEntries) / float64(totalEntries) * 100
-	}
-
-	return map[string]interface{}{
-		"total_entries":    totalEntries,
-		"executed_entries": executedEntries,
-		"cache_hit_rate":   hitRate,
-	}
 }
 
 // ============================================================================
@@ -316,7 +320,7 @@ func (c *Client) processFazerAgendamentoTool(
 
 	response := AppointmentResponse{
 		Success:            true,
-		Agendamentos: resultados,
+		AgendamentosFeitos: resultados,
 		Message:            fmt.Sprintf("✅ %d serviços agendados com sucesso!", len(agendamentos)),
 	}
 
@@ -327,6 +331,15 @@ func (c *Client) processFazerAgendamentoTool(
 	}
 
 	return openai.ToolMessage(string(respJSON), toolCall.ID), true
+}
+
+func extrairIDs(agendamentos []AgendamentoResultado) []int {
+	var ids []int
+	for _, a := range agendamentos {
+		id, _ := strconv.Atoi(a.AppointmentID)
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func (c *Client) processVerificarHorarioDisponivelTool(
@@ -433,69 +446,4 @@ func (c *Client) processReagendarServicoTool(
 	}
 
 	return openai.ToolMessage(string(respJSON), toolCall.ID), true
-}
-
-// ============================================================================
-// ESTRUTURAS DE DADOS
-// ============================================================================
-
-// Cadastro de cliente
-type ClientRegisterRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	DDD   string `json:"ddd"`
-	Phone string `json:"phone"`
-}
-
-type ClientRegisterResponse struct {
-	Success   bool   `json:"success"`
-	ClientID  int    `json:"client_id,omitempty"`
-	Message   string `json:"message"`
-	ErrorCode string `json:"error_code,omitempty"`
-}
-
-// Agendamento
-type AppointmentRequest struct {
-	EmailCliente    string   `json:"email_cliente"`
-	IdsServicos     []string `json:"ids_servicos"`
-	ProfissionalID  string   `json:"profissional_id"`
-	DataHoraInicio  string   `json:"data_hora_inicio"`
-}
-
-type AppointmentResponse struct {
-	Success          bool                   `json:"success"`
-	Agendamentos     []AgendamentoResultado `json:"agendamentos,omitempty"`
-	Message          string                 `json:"message"`
-	ErrorCode        string                 `json:"error_code,omitempty"`
-}
-
-type AgendamentoResultado struct {
-	AppointmentID string `json:"appointment_id"`
-	ServicoNome   string `json:"servico_nome"`
-	Horario       string `json:"horario"`
-	Status        string `json:"status"`
-}
-
-// Cancelamento
-type CancelAppointmentRequest struct {
-	AppointmentID string `json:"appointment_id"`
-}
-
-type CancelAppointmentResponse struct {
-	AppointmentID string `json:"appointment_id"`
-	Status        string `json:"status"`
-	Message       string `json:"message"`
-}
-
-// Reagendamento
-type RescheduleAppointmentRequest struct {
-	AppointmentID string `json:"appointment_id"`
-	NewDate       string `json:"new_date"`
-	NewTime       string `json:"new_time"`
-}
-
-type RescheduleAppointmentResponse struct {
-	AppointmentID string `json:"appointment_id"`
-	Status        string `json:"status"`
-	Message       string `json:"message"`
 }
