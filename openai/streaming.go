@@ -76,7 +76,7 @@ func (c *Client) processStreamingChat(ctx context.Context, config streamingConfi
 	messages := convertChatHistory(config.chatHistory)
 
 	if config.useTools {
-		toolMessages, err := c.processToolsIfNeeded(ctx, config.userID, messages)
+		toolMessages, err := c.processToolsIfNeeded(ctx, config.userID, messages, config.vonageClient)
 		if err != nil {
 			return err
 		}
@@ -92,6 +92,7 @@ func (c *Client) processToolsIfNeeded(
 	ctx context.Context,
 	userID string,
 	messages []openai.ChatCompletionMessageParamUnion,
+	vonageClient *vonage.Client,
 ) ([]openai.ChatCompletionMessageParamUnion, error) {
 	chatCompletion, err := c.createChatCompletionWithTools(ctx, messages)
 	if err != nil {
@@ -102,7 +103,7 @@ func (c *Client) processToolsIfNeeded(
 	if len(toolCalls) > 0 {
 		messages = append(messages, chatCompletion.Choices[0].Message.ToParam())
 
-		messages, err = c.handleToolCalls(ctx, userID, messages, toolCalls)
+		messages, err = c.handleToolCalls(ctx, userID, messages, toolCalls, vonageClient)
 		if err != nil {
 			return messages, err
 		}

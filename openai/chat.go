@@ -2,6 +2,7 @@ package openai
 
 import (
 	"chatbot/redis"
+	"chatbot/vonage"
 	"context"
 
 	"github.com/openai/openai-go"
@@ -34,6 +35,7 @@ func (c *Client) ProcessChatWithTools(
 	ctx context.Context,
 	userID string,
 	chatHistory []redis.ChatMessage,
+	vonageClient *vonage.Client,
 ) (string, error) {
 	messages := convertChatHistory(chatHistory)
 
@@ -47,7 +49,7 @@ func (c *Client) ProcessChatWithTools(
 	if len(toolCalls) > 0 {
 		messages = append(messages, chatCompletion.Choices[0].Message.ToParam())
 
-		messages, err = c.handleToolCalls(ctx, userID, messages, toolCalls)
+		messages, err = c.handleToolCalls(ctx, userID, messages, toolCalls, vonageClient)
 		if err != nil {
 			return "", err
 		}
