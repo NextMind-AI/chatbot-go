@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -28,7 +29,19 @@ func NewStreamingJSONParser() *StreamingJSONParser {
 // to parse any complete Message objects. Returns a slice of newly parsed messages.
 func (p *StreamingJSONParser) AddChunk(chunk string) []Message {
 	p.buffer.WriteString(chunk)
-	return p.parseNewMessages()
+
+	// Debug logging to understand what content we're receiving
+	if len(chunk) > 0 {
+		fmt.Printf("DEBUG: AddChunk received: %q\n", chunk)
+		fmt.Printf("DEBUG: Buffer now contains: %q\n", p.buffer.String())
+	}
+
+	messages := p.parseNewMessages()
+	if len(messages) > 0 {
+		fmt.Printf("DEBUG: Parsed %d messages from chunk\n", len(messages))
+	}
+
+	return messages
 }
 
 // parseNewMessages scans the buffer for complete message objects and parses them.
@@ -37,40 +50,53 @@ func (p *StreamingJSONParser) parseNewMessages() []Message {
 	content := p.buffer.String()
 	var parsedMessages []Message
 
+	fmt.Printf("DEBUG: parseNewMessages called, buffer length: %d, lastParsedPos: %d\n", len(content), p.lastParsedPos)
+
 	if !p.foundMessages && strings.Contains(content, `"messages":[`) {
 		p.foundMessages = true
+		fmt.Printf("DEBUG: Found 'messages' array in content\n")
 	}
 
 	searchContent := content[p.lastParsedPos:]
+	fmt.Printf("DEBUG: Searching in content: %q\n", searchContent)
 
 	for {
 		startIdx := strings.Index(searchContent, `{"content":`)
 		if startIdx == -1 {
 			startIdx = strings.Index(searchContent, `{"type":`)
 			if startIdx == -1 {
+				fmt.Printf("DEBUG: No message start patterns found in search content\n")
 				break
 			}
 		}
 
 		fullStartIdx := p.lastParsedPos + startIdx
+		fmt.Printf("DEBUG: Found potential message start at index %d\n", fullStartIdx)
 
 		endIdx := p.findMessageEnd(content, fullStartIdx)
 		if endIdx == -1 {
+			fmt.Printf("DEBUG: Could not find message end for message starting at %d\n", fullStartIdx)
 			break
 		}
 
 		messageJSON := content[fullStartIdx : endIdx+1]
+		fmt.Printf("DEBUG: Extracted message JSON: %q\n", messageJSON)
 
 		var msg Message
 		if err := json.Unmarshal([]byte(messageJSON), &msg); err == nil {
 			p.MsgCount++
 			parsedMessages = append(parsedMessages, msg)
+			fmt.Printf("DEBUG: Successfully parsed message %d: content=%q, type=%q\n", p.MsgCount, msg.Content, msg.Type)
+		} else {
+			fmt.Printf("DEBUG: Failed to unmarshal message JSON: %v\n", err)
 		}
 
 		p.lastParsedPos = endIdx + 1
 		searchContent = content[p.lastParsedPos:]
+		fmt.Printf("DEBUG: Updated lastParsedPos to %d\n", p.lastParsedPos)
 	}
 
+	fmt.Printf("DEBUG: parseNewMessages returning %d messages\n", len(parsedMessages))
 	return parsedMessages
 }
 

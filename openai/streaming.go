@@ -193,7 +193,7 @@ func (c *Client) streamResponse(
 		Str("user_id", config.userID).
 		Int("total_messages_queued", totalMessagesQueued).
 		Msg("Stream finished, closing messageQueue")
-	
+
 	close(messageQueue)
 	<-done
 
@@ -234,6 +234,7 @@ func (c *Client) streamResponseWithoutTools(
 	parser := NewStreamingJSONParser()
 	var fullContent strings.Builder
 	sentMessages := make(map[int]bool)
+	totalMessagesQueued := 0
 
 	messageQueue := make(chan messageWithIndex, 100)
 	done := make(chan struct{})
@@ -265,14 +266,23 @@ func (c *Client) streamResponseWithoutTools(
 
 			newMessages := parser.AddChunk(content)
 
+			if len(newMessages) > 0 {
+				log.Info().
+					Str("user_id", config.userID).
+					Int("new_messages_count", len(newMessages)).
+					Msg("Parser found new messages in chunk (without tools)")
+			}
+
 			for i, msg := range newMessages {
 				messageIndex := parser.MsgCount - len(newMessages) + i
 				if !sentMessages[messageIndex] {
 					sentMessages[messageIndex] = true
+					totalMessagesQueued++
 
 					log.Info().
 						Str("user_id", config.userID).
 						Int("message_index", messageIndex).
+						Int("total_queued", totalMessagesQueued).
 						Str("content", msg.Content).
 						Str("type", msg.Type).
 						Msg("Queueing streamed message for sequential sending (without tools)")
@@ -289,6 +299,7 @@ func (c *Client) streamResponseWithoutTools(
 					case <-ctx.Done():
 						log.Warn().
 							Str("user_id", config.userID).
+							Int("total_queued", totalMessagesQueued).
 							Msg("Context done while sending to messageQueue (without tools), closing queue")
 						close(messageQueue)
 						<-done
@@ -301,7 +312,16 @@ func (c *Client) streamResponseWithoutTools(
 
 	log.Info().
 		Str("user_id", config.userID).
+		Int("total_messages_queued", totalMessagesQueued).
 		Msg("Stream finished, closing messageQueue (without tools)")
+
+	// Check if no messages were queued during streaming
+	if totalMessagesQueued == 0 {
+		log.Warn().
+			Str("user_id", config.userID).
+			Msg("WARNING: No messages were queued during streaming - this is why the bot didn't respond!")
+	}
+
 	close(messageQueue)
 	<-done
 
