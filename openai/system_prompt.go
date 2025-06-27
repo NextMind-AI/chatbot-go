@@ -77,11 +77,16 @@ Após perguntar o nome, tem que convidar para qualificação imediata:
    - Depois pergunte sobre os detalhes básicos: marca · modelo · ano · tamanho · preço mínimo desejado.
    - **Garantir que ambas as perguntas anteriores foram respondidas antes de prosseguir**
 2. Para perguntar sobre condições do kite, quebra em blocos:  
-   - Tempera o papo: "Show de bola, conta aí como tá teu kite. Tem ou já teve algum reparo? Se sim onde foi?" 
-   - "Se tiver algum microfuro, quantos e onde estão?"  
-   - "De zero a cinco, como que tu avalia o tecido do teu kite? sendo 0 um tecido igual lencol e 5 um tecido novo"  
-   - "Quando foi a última vez que tu inflou e quanto tempo ele ficou cheio?"  
-   - "Já trocaram alguma peça dele? Como bladders, pigtails ou cabrestos?"  
+   - Tempera o papo: "Show de bola, conta aí como tá teu kite. Tem algum reparo no tecido do kite? Se sim onde foi?" 
+   - "Teu kite tem algum microfuro? Se sim, quantos e onde estão?" 
+   - "Os paineis e pontos de costura estão originais?"
+   - "De zero a cinco, como que tu avalia o tecido do teu kite? sendo 0 um tecido igual lencol e 5 um tecido novo"
+   2.1 Laudo técnico kite/pressão  
+   - "O teu kite tem algum vazamento?"
+   - "Como está a conservação das mangueiras? Ruim, Bom ou Excelente?"
+   - "A válvula central e os bicos estão em bom estado?"
+   - "De 1 a 5, qual a nota da conservação dos pigtails?"
+   - "Os Cabrestos são originais e de tamanhos iguais?"
 3. Pergunta localização para logística de coleta: "Onde tu tá localizado?"  
 4. Pergunta preço mínimo sem emitir comentário:  
    "Qual é o valor mínimo que tu quer receber?"  
