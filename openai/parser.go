@@ -75,35 +75,61 @@ func (p *StreamingJSONParser) parseNewMessages() []Message {
 	fmt.Printf("DEBUG: Searching in content: %q\n", searchContent)
 
 	for {
-		// Look for message objects with flexible whitespace
-		var startIdx int = -1
-		var foundPattern string
-
-		// Try different variations of message object patterns
-		messagePatterns := []string{
-			`{"content":`,   // no spaces
-			`{ "content":`,  // space after brace
-			`{"content" :`,  // space before colon
-			`{ "content" :`, // spaces around
-			`{"type":`,      // no spaces
-			`{ "type":`,     // space after brace
-			`{"type" :`,     // space before colon
-			`{ "type" :`,    // spaces around
+		// Look for opening braces that might start a message object
+		braceIdx := strings.Index(searchContent, "{")
+		if braceIdx == -1 {
+			fmt.Printf("DEBUG: No more opening braces found in search content\n")
+			break
 		}
 
-		for _, pattern := range messagePatterns {
-			idx := strings.Index(searchContent, pattern)
-			if idx != -1 {
-				startIdx = idx
-				foundPattern = pattern
+		// Skip this brace if we haven't found the messages array yet
+		if !p.foundMessages {
+			searchContent = searchContent[braceIdx+1:]
+			p.lastParsedPos++
+			continue
+		}
+
+		// Check if this is a message object by looking for "content" or "type" fields
+		// directly after the opening brace (allowing for whitespace)
+		checkEnd := braceIdx + 50
+		if checkEnd > len(searchContent) {
+			checkEnd = len(searchContent)
+		}
+		checkContent := searchContent[braceIdx:checkEnd]
+
+		// Look for patterns that indicate this is a message object
+		isMessage := false
+		patterns := []string{
+			`{"content"`,
+			`{ "content"`,
+			`{` + "\n" + `"content"`,
+			`{` + "\t" + `"content"`,
+			`{` + "\r\n" + `"content"`,
+			`{"type"`,
+			`{ "type"`,
+			`{` + "\n" + `"type"`,
+			`{` + "\t" + `"type"`,
+			`{` + "\r\n" + `"type"`,
+			`{` + "\n\t\t\t\t" + `"content"`,
+			`{` + "\n\t\t\t" + `"content"`,
+		}
+
+		for _, pattern := range patterns {
+			if strings.HasPrefix(checkContent, pattern) {
+				isMessage = true
 				break
 			}
 		}
 
-		if startIdx == -1 {
-			fmt.Printf("DEBUG: No message start patterns found in search content\n")
-			break
+		if !isMessage {
+			// This brace doesn't start a message object, skip it
+			searchContent = searchContent[braceIdx+1:]
+			p.lastParsedPos++
+			continue
 		}
+
+		startIdx := braceIdx
+		foundPattern := "message object"
 
 		fullStartIdx := p.lastParsedPos + startIdx
 		fmt.Printf("DEBUG: Found potential message start at index %d using pattern: %q\n", fullStartIdx, foundPattern)
