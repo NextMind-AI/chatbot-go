@@ -168,9 +168,10 @@ func (p *StreamingJSONParser) findMessageEnd(content string, startIdx int) int {
 		}
 
 		if !inString {
-			if char == '{' {
+			switch char {
+			case '{':
 				braceCount++
-			} else if char == '}' {
+			case '}':
 				braceCount--
 				if braceCount == 0 {
 					fmt.Printf("DEBUG: findMessageEnd found closing brace at index %d\n", i)

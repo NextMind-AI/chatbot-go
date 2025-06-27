@@ -537,7 +537,7 @@ func (c *Client) sendMessagesSequentially(
 
 // Funções auxiliares para melhor organização e logs
 func (c *Client) sendAudioMessage(
-	ctx context.Context,
+	_ context.Context,
 	config streamingConfig,
 	msg Message,
 	messageIndex int,
@@ -591,7 +591,7 @@ func (c *Client) sendAudioMessage(
 }
 
 func (c *Client) sendTextMessage(
-	ctx context.Context,
+	_ context.Context,
 	config streamingConfig,
 	msg Message,
 	messageIndex int,

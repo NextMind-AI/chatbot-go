@@ -6,25 +6,6 @@ import (
 	"github.com/openai/openai-go"
 )
 
-// convertChatHistory converts Redis chat messages to OpenAI message format.
-// It transforms the chat history from the Redis format to the format expected by OpenAI's API.
-func (c *Client) convertChatHistory(chatHistory []redis.ChatMessage) []openai.ChatCompletionMessageParamUnion {
-	// Use empty user context for basic conversion
-	systemPrompt := c.promptGenerator("", "")
-	messages := []openai.ChatCompletionMessageParamUnion{
-		openai.SystemMessage(systemPrompt),
-	}
-	for _, msg := range chatHistory {
-		switch msg.Role {
-		case "user":
-			messages = append(messages, openai.UserMessage(msg.Content))
-		case "assistant":
-			messages = append(messages, openai.AssistantMessage(msg.Content))
-		}
-	}
-	return messages
-}
-
 // convertChatHistoryWithUserName converts Redis chat messages to OpenAI message format with personalized system prompt.
 // It includes the user's name and phone number in the system prompt to provide context to the AI.
 func (c *Client) convertChatHistoryWithUserName(chatHistory []redis.ChatMessage, userName string, userID string) []openai.ChatCompletionMessageParamUnion {
