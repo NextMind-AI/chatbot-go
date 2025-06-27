@@ -639,6 +639,9 @@ func (c *Client) finalizeStreamingResponse(
 		Int("content_length", len(fullContent)).
 		Msg("Finalizing streaming response - validating JSON")
 
+	// Debug: show the complete JSON being parsed
+	fmt.Printf("DEBUG: Complete JSON being parsed: %q\n", fullContent)
+
 	var messageList MessageList
 	if err := json.Unmarshal([]byte(fullContent), &messageList); err != nil {
 		log.Error().

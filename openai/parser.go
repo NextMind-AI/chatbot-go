@@ -52,26 +52,61 @@ func (p *StreamingJSONParser) parseNewMessages() []Message {
 
 	fmt.Printf("DEBUG: parseNewMessages called, buffer length: %d, lastParsedPos: %d\n", len(content), p.lastParsedPos)
 
-	if !p.foundMessages && strings.Contains(content, `"messages":[`) {
-		p.foundMessages = true
-		fmt.Printf("DEBUG: Found 'messages' array in content\n")
+	// Look for "messages" array with flexible whitespace
+	if !p.foundMessages {
+		// Try different variations of the messages array pattern
+		patterns := []string{
+			`"messages":[`,
+			`"messages": [`,  // with space before bracket
+			`"messages" :[`,  // with space before colon
+			`"messages" : [`, // with spaces around colon
+		}
+
+		for _, pattern := range patterns {
+			if strings.Contains(content, pattern) {
+				p.foundMessages = true
+				fmt.Printf("DEBUG: Found 'messages' array in content with pattern: %q\n", pattern)
+				break
+			}
+		}
 	}
 
 	searchContent := content[p.lastParsedPos:]
 	fmt.Printf("DEBUG: Searching in content: %q\n", searchContent)
 
 	for {
-		startIdx := strings.Index(searchContent, `{"content":`)
-		if startIdx == -1 {
-			startIdx = strings.Index(searchContent, `{"type":`)
-			if startIdx == -1 {
-				fmt.Printf("DEBUG: No message start patterns found in search content\n")
+		// Look for message objects with flexible whitespace
+		var startIdx int = -1
+		var foundPattern string
+
+		// Try different variations of message object patterns
+		messagePatterns := []string{
+			`{"content":`,   // no spaces
+			`{ "content":`,  // space after brace
+			`{"content" :`,  // space before colon
+			`{ "content" :`, // spaces around
+			`{"type":`,      // no spaces
+			`{ "type":`,     // space after brace
+			`{"type" :`,     // space before colon
+			`{ "type" :`,    // spaces around
+		}
+
+		for _, pattern := range messagePatterns {
+			idx := strings.Index(searchContent, pattern)
+			if idx != -1 {
+				startIdx = idx
+				foundPattern = pattern
 				break
 			}
 		}
 
+		if startIdx == -1 {
+			fmt.Printf("DEBUG: No message start patterns found in search content\n")
+			break
+		}
+
 		fullStartIdx := p.lastParsedPos + startIdx
-		fmt.Printf("DEBUG: Found potential message start at index %d\n", fullStartIdx)
+		fmt.Printf("DEBUG: Found potential message start at index %d using pattern: %q\n", fullStartIdx, foundPattern)
 
 		endIdx := p.findMessageEnd(content, fullStartIdx)
 		if endIdx == -1 {
@@ -108,6 +143,12 @@ func (p *StreamingJSONParser) findMessageEnd(content string, startIdx int) int {
 	inString := false
 	escaped := false
 
+	endPreview := startIdx + 50
+	if endPreview > len(content) {
+		endPreview = len(content)
+	}
+	fmt.Printf("DEBUG: findMessageEnd called for content starting at %d: %q\n", startIdx, content[startIdx:endPreview])
+
 	for i := startIdx; i < len(content); i++ {
 		char := content[i]
 
@@ -132,11 +173,13 @@ func (p *StreamingJSONParser) findMessageEnd(content string, startIdx int) int {
 			} else if char == '}' {
 				braceCount--
 				if braceCount == 0 {
+					fmt.Printf("DEBUG: findMessageEnd found closing brace at index %d\n", i)
 					return i
 				}
 			}
 		}
 	}
 
+	fmt.Printf("DEBUG: findMessageEnd could not find closing brace, returning -1\n")
 	return -1
 }
