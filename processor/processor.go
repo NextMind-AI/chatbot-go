@@ -108,3 +108,8 @@ func (mp *MessageProcessor) cancelled(ctx context.Context, userID, stage string)
 	}
 	return false
 }
+
+// GetRedisClient returns the Redis client for external access
+func (mp *MessageProcessor) GetRedisClient() *redis.Client {
+	return &mp.redisClient
+}

@@ -20,6 +20,7 @@ func New(messageProcessor *processor.MessageProcessor) *Server {
 		messageProcessor: messageProcessor,
 	}
 
+	server.setupMiddleware()
 	server.setupRoutes()
 
 	return server
