@@ -50,114 +50,42 @@ func (p *StreamingJSONParser) parseNewMessages() []Message {
 	content := p.buffer.String()
 	var parsedMessages []Message
 
-	fmt.Printf("DEBUG: parseNewMessages called, buffer length: %d, lastParsedPos: %d\n", len(content), p.lastParsedPos)
+	fmt.Printf("DEBUG: parseNewMessages called, buffer length: %d, current MsgCount: %d\n", len(content), p.MsgCount)
 
-	// Look for "messages" array with flexible whitespace
-	if !p.foundMessages {
-		// Try different variations of the messages array pattern
-		patterns := []string{
-			`"messages":[`,
-			`"messages": [`,  // with space before bracket
-			`"messages" :[`,  // with space before colon
-			`"messages" : [`, // with spaces around colon
-		}
+	// Sempre tenta fazer parse do JSON completo se contém "messages"
+	if strings.Contains(content, `"messages":[`) || strings.Contains(content, `"messages": [`) {
+		fmt.Printf("DEBUG: Attempting to parse complete JSON\n")
 
-		for _, pattern := range patterns {
-			if strings.Contains(content, pattern) {
-				p.foundMessages = true
-				fmt.Printf("DEBUG: Found 'messages' array in content with pattern: %q\n", pattern)
-				break
+		var messageList MessageList
+		if err := json.Unmarshal([]byte(content), &messageList); err == nil {
+			fmt.Printf("DEBUG: Successfully parsed complete JSON with %d total messages\n", len(messageList.Messages))
+
+			// Retorna apenas as mensagens que ainda não foram processadas
+			if len(messageList.Messages) > p.MsgCount {
+				newMessages := messageList.Messages[p.MsgCount:]
+				oldMsgCount := p.MsgCount
+				p.MsgCount = len(messageList.Messages)
+
+				fmt.Printf("DEBUG: Returning %d new messages (from %d to %d)\n", len(newMessages), oldMsgCount, p.MsgCount)
+
+				for i, msg := range newMessages {
+					fmt.Printf("DEBUG: New message %d: content=%q, type=%q\n", oldMsgCount+i+1, msg.Content, msg.Type)
+				}
+
+				return newMessages
+			} else {
+				fmt.Printf("DEBUG: No new messages to return (already processed %d messages)\n", p.MsgCount)
+				return parsedMessages
 			}
-		}
-	}
-
-	searchContent := content[p.lastParsedPos:]
-	fmt.Printf("DEBUG: Searching in content: %q\n", searchContent)
-
-	for {
-		// Look for opening braces that might start a message object
-		braceIdx := strings.Index(searchContent, "{")
-		if braceIdx == -1 {
-			fmt.Printf("DEBUG: No more opening braces found in search content\n")
-			break
-		}
-
-		// Skip this brace if we haven't found the messages array yet
-		if !p.foundMessages {
-			searchContent = searchContent[braceIdx+1:]
-			p.lastParsedPos++
-			continue
-		}
-
-		// Check if this is a message object by looking for "content" or "type" fields
-		// directly after the opening brace (allowing for whitespace)
-		checkEnd := braceIdx + 50
-		if checkEnd > len(searchContent) {
-			checkEnd = len(searchContent)
-		}
-		checkContent := searchContent[braceIdx:checkEnd]
-
-		// Look for patterns that indicate this is a message object
-		isMessage := false
-		patterns := []string{
-			`{"content"`,
-			`{ "content"`,
-			`{` + "\n" + `"content"`,
-			`{` + "\t" + `"content"`,
-			`{` + "\r\n" + `"content"`,
-			`{"type"`,
-			`{ "type"`,
-			`{` + "\n" + `"type"`,
-			`{` + "\t" + `"type"`,
-			`{` + "\r\n" + `"type"`,
-			`{` + "\n\t\t\t\t" + `"content"`,
-			`{` + "\n\t\t\t" + `"content"`,
-		}
-
-		for _, pattern := range patterns {
-			if strings.HasPrefix(checkContent, pattern) {
-				isMessage = true
-				break
-			}
-		}
-
-		if !isMessage {
-			// This brace doesn't start a message object, skip it
-			searchContent = searchContent[braceIdx+1:]
-			p.lastParsedPos++
-			continue
-		}
-
-		startIdx := braceIdx
-		foundPattern := "message object"
-
-		fullStartIdx := p.lastParsedPos + startIdx
-		fmt.Printf("DEBUG: Found potential message start at index %d using pattern: %q\n", fullStartIdx, foundPattern)
-
-		endIdx := p.findMessageEnd(content, fullStartIdx)
-		if endIdx == -1 {
-			fmt.Printf("DEBUG: Could not find message end for message starting at %d\n", fullStartIdx)
-			break
-		}
-
-		messageJSON := content[fullStartIdx : endIdx+1]
-		fmt.Printf("DEBUG: Extracted message JSON: %q\n", messageJSON)
-
-		var msg Message
-		if err := json.Unmarshal([]byte(messageJSON), &msg); err == nil {
-			p.MsgCount++
-			parsedMessages = append(parsedMessages, msg)
-			fmt.Printf("DEBUG: Successfully parsed message %d: content=%q, type=%q\n", p.MsgCount, msg.Content, msg.Type)
 		} else {
-			fmt.Printf("DEBUG: Failed to unmarshal message JSON: %v\n", err)
+			fmt.Printf("DEBUG: Failed to parse complete JSON: %v\n", err)
+			fmt.Printf("DEBUG: JSON content: %q\n", content)
 		}
-
-		p.lastParsedPos = endIdx + 1
-		searchContent = content[p.lastParsedPos:]
-		fmt.Printf("DEBUG: Updated lastParsedPos to %d\n", p.lastParsedPos)
+	} else {
+		fmt.Printf("DEBUG: No 'messages' array found in content yet\n")
 	}
 
-	fmt.Printf("DEBUG: parseNewMessages returning %d messages\n", len(parsedMessages))
+	fmt.Printf("DEBUG: parseNewMessages returning 0 messages (incomplete or invalid JSON)\n")
 	return parsedMessages
 }
 
