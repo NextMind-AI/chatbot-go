@@ -2,7 +2,6 @@ package server
 
 import (
 	"github.com/NextMind-AI/chatbot-go/processor"
-
 	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog/log"
 )
@@ -13,16 +12,20 @@ type Server struct {
 }
 
 func New(messageProcessor *processor.MessageProcessor) *Server {
-	app := fiber.New()
+	app := fiber.New(fiber.Config{
+		ErrorHandler: func(c fiber.Ctx, err error) error {
+			return c.Status(500).JSON(map[string]string{
+				"error": err.Error(),
+			})
+		},
+	})
 
 	server := &Server{
 		app:              app,
 		messageProcessor: messageProcessor,
 	}
 
-	server.setupMiddleware()
 	server.setupRoutes()
-
 	return server
 }
 

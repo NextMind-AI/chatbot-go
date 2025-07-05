@@ -17,6 +17,8 @@ import (
 	"github.com/NextMind-AI/chatbot-go/server"
 	"github.com/NextMind-AI/chatbot-go/vonage"
 
+	"github.com/rs/zerolog/log"
+
 	openaiapi "github.com/openai/openai-go"
 )
 
@@ -48,35 +50,77 @@ func New(cfg Config) *Chatbot {
 	appConfig := config.Load()
 	httpClient := http.Client{}
 
-	awsClient := aws.NewClient(appConfig.S3Region, appConfig.S3Bucket)
+	var vonageClient processor.VonageClientInterface
+	var redisClient processor.RedisClientInterface
+	var elevenLabsClient processor.ElevenLabsClientInterface
+	var openAIClient processor.OpenAIClientInterface
 
-	vonageClient := vonage.NewClient(
-		appConfig.VonageJWT,
-		appConfig.GeospecificMessagesAPIURL,
-		appConfig.MessagesAPIURL,
-		appConfig.PhoneNumber,
-		httpClient,
-	)
+	if appConfig.LocalMode {
+		log.Info().Msg("🧪 Starting in LOCAL MODE for testing")
 
-	openAIClient := openai.NewClient(
-		appConfig.OpenAIKey,
-		httpClient,
-		cfg.PromptGenerator,
-		cfg.Tools,
-		cfg.Model,
-	)
+		// Usa mocks em modo local
+		vonageClient = &processor.MockVonageClient{}
+		redisClient = processor.NewMockRedisClient()
+		elevenLabsClient = &processor.MockElevenLabsClient{}
 
-	redisClient := redis.NewClient(
-		appConfig.RedisAddr,
-		appConfig.RedisPassword,
-		appConfig.RedisDB,
-	)
+		// Cria o cliente OpenAI real primeiro
+		realOpenAIClient := openai.NewClient(
+			appConfig.OpenAIKey,
+			httpClient,
+			cfg.PromptGenerator,
+			cfg.Tools,
+			cfg.Model,
+		)
 
-	elevenLabsClient := elevenlabs.NewClient(
-		appConfig.ElevenLabsAPIKey,
-		httpClient,
-		awsClient,
-	)
+		// Envolve com o mock para capturar respostas
+		openAIClient = processor.NewMockOpenAIStreamingClient(&realOpenAIClient)
+
+	} else {
+		log.Info().Msg("🚀 Starting in PRODUCTION MODE")
+
+		// Usa serviços reais em produção
+		awsClient := aws.NewClient(appConfig.S3Region, appConfig.S3Bucket)
+
+		// Cria os clientes reais
+		vonageClientReal := vonage.NewClient(
+			appConfig.VonageJWT,
+			appConfig.GeospecificMessagesAPIURL,
+			appConfig.MessagesAPIURL,
+			appConfig.PhoneNumber,
+			httpClient,
+		)
+
+		openAIClientReal := openai.NewClient(
+			appConfig.OpenAIKey,
+			httpClient,
+			cfg.PromptGenerator,
+			cfg.Tools,
+			cfg.Model,
+		)
+
+		redisClientReal := redis.NewClient(
+			appConfig.RedisAddr,
+			appConfig.RedisPassword,
+			appConfig.RedisDB,
+		)
+
+		elevenLabsClientReal := elevenlabs.NewClient(
+			appConfig.ElevenLabsAPIKey,
+			httpClient,
+			awsClient,
+		)
+
+		// Envolve os clientes reais com os wrappers para implementar as interfaces
+		vonageClient = processor.NewVonageClientWrapper(&vonageClientReal)
+		redisClient = processor.NewRedisClientWrapper(&redisClientReal)
+		elevenLabsClient = processor.NewElevenLabsClientWrapper(&elevenLabsClientReal)
+		openAIClient = processor.NewOpenAIClientWrapper(
+			&openAIClientReal,
+			&vonageClientReal,
+			&redisClientReal,
+			&elevenLabsClientReal,
+		)
+	}
 
 	executionManager := execution.NewManager()
 
@@ -98,13 +142,10 @@ func New(cfg Config) *Chatbot {
 }
 
 // Start starts the chatbot server
-func (c *Chatbot) Start(port string) {
-	if port == "" {
-		port = "8080"
-	}
-	c.server.Start(port)
+func (c *Chatbot) Run() {
+	appConfig := config.Load()
+	c.server.Start(appConfig.Port)
 }
-
 // ToolFunc represents a tool function with parameter metadata
 type ToolFunc struct {
 	Fn             any

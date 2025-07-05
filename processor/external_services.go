@@ -16,9 +16,9 @@ func (mp *MessageProcessor) processWithAI(ctx context.Context, userID string, us
 		userID,
 		userName,
 		chatHistory,
-		&mp.vonageClient,
-		&mp.redisClient,
-		&mp.elevenLabsClient,
+		mp.vonageClient,
+		mp.redisClient,
+		mp.elevenLabsClient,
 		userID,
 	)
 }

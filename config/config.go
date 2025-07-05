@@ -25,10 +25,15 @@ type Config struct {
 	S3Region                  string
 	AWSAccessKeyID            string
 	AWSSecretAccessKey        string
+	LocalMode                 bool
 }
 
 func Load() *Config {
-	godotenv.Load()
+	if err := godotenv.Load(".env.local"); err != nil {
+        if err := godotenv.Load(".env"); err != nil {
+            log.Printf("Warning: Could not load .env file: %v", err)
+        }
+    }
 
 	cfg := &Config{
 		VonageJWT:                 mustGetEnv("VONAGE_JWT"),
@@ -47,6 +52,7 @@ func Load() *Config {
 		S3Region:                  getEnv("AWS_REGION", "us-east-2"),
 		AWSAccessKeyID:            mustGetEnv("AWS_ACCESS_KEY_ID"),
 		AWSSecretAccessKey:        mustGetEnv("AWS_SECRET_ACCESS_KEY"),
+		LocalMode:                 getEnv("LOCAL_MODE", "false") == "true",
 	}
 
 	return cfg
