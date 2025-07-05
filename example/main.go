@@ -174,5 +174,5 @@ Sempre responda de forma útil e direta às perguntas do usuário.`
 	log.Println("Server starting on port 8080...")
 
 	bot := chatbot.New(config)
-	bot.Start("8080")
+	bot.Run()
 }
