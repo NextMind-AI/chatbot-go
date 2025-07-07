@@ -12,6 +12,9 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// StoreBotMessageCallback is a function type for storing bot messages
+type StoreBotMessageCallback func(userID, message string) error
+
 // streamingConfig holds the configuration for a streaming chat completion request.
 type streamingConfig struct {
 	userID           string
@@ -21,6 +24,7 @@ type streamingConfig struct {
 	elevenLabsClient *elevenlabs.Client
 	toNumber         string
 	useTools         bool
+	storeBotMessage  StoreBotMessageCallback
 }
 
 // ProcessChatStreaming processes a chat conversation with streaming response.
@@ -34,6 +38,7 @@ func (c *Client) ProcessChatStreaming(
 	redisClient *redis.Client,
 	elevenLabsClient *elevenlabs.Client,
 	toNumber string,
+	storeBotMessage StoreBotMessageCallback,
 ) error {
 	config := streamingConfig{
 		userID:           userID,
@@ -43,6 +48,7 @@ func (c *Client) ProcessChatStreaming(
 		elevenLabsClient: elevenLabsClient,
 		toNumber:         toNumber,
 		useTools:         false,
+		storeBotMessage:  storeBotMessage,
 	}
 	return c.processStreamingChat(ctx, config)
 }
@@ -57,6 +63,7 @@ func (c *Client) ProcessChatStreamingWithTools(
 	redisClient *redis.Client,
 	elevenLabsClient *elevenlabs.Client,
 	toNumber string,
+	storeBotMessage StoreBotMessageCallback,
 ) error {
 	config := streamingConfig{
 		userID:           userID,
@@ -66,6 +73,7 @@ func (c *Client) ProcessChatStreamingWithTools(
 		elevenLabsClient: elevenLabsClient,
 		toNumber:         toNumber,
 		useTools:         true,
+		storeBotMessage:  storeBotMessage,
 	}
 	return c.processStreamingChat(ctx, config)
 }
@@ -329,7 +337,7 @@ func (c *Client) streamResponse(
 				}
 
 				// Save the response
-				return c.finalizeStreamingResponse(config.userID, cleanedContent, config.redisClient)
+				return c.finalizeStreamingResponse(config.userID, cleanedContent, config.storeBotMessage)
 			} else {
 				log.Error().
 					Err(err).
@@ -352,7 +360,7 @@ func (c *Client) streamResponse(
 		return nil
 	}
 
-	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
+	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.storeBotMessage)
 }
 
 // finalizeStreamingResponse validates the final JSON response and stores it in Redis.
@@ -360,7 +368,7 @@ func (c *Client) streamResponse(
 func (c *Client) finalizeStreamingResponse(
 	userID string,
 	fullContent string,
-	redisClient *redis.Client,
+	storeBotMessage StoreBotMessageCallback,
 ) error {
 	var messageList MessageList
 	if err := json.Unmarshal([]byte(fullContent), &messageList); err != nil {
@@ -378,7 +386,7 @@ func (c *Client) finalizeStreamingResponse(
 	}
 	fullResponse := strings.Join(allMessagesContent, "\n\n")
 
-	if err := redisClient.AddBotMessage(userID, fullResponse); err != nil {
+	if err := storeBotMessage(userID, fullResponse); err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", userID).

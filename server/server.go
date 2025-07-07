@@ -11,6 +11,7 @@ import (
 type Server struct {
 	app              *fiber.App
 	messageProcessor *processor.MessageProcessor
+	wsManager        *WebSocketManager
 }
 
 func New(messageProcessor *processor.MessageProcessor) *Server {
@@ -24,10 +25,18 @@ func New(messageProcessor *processor.MessageProcessor) *Server {
 		AllowCredentials: true,
 	}))
 
+	// Create WebSocket manager
+	wsManager := NewWebSocketManager()
+	wsManager.Start()
+
 	server := &Server{
 		app:              app,
 		messageProcessor: messageProcessor,
+		wsManager:        wsManager,
 	}
+
+	// Configure WebSocket callback in message processor
+	messageProcessor.SetWebSocketCallback(server.BroadcastMessage)
 
 	server.setupRoutes()
 

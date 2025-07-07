@@ -7,4 +7,7 @@ func (s *Server) setupRoutes() {
 	// CRM routes
 	s.app.Get("/crm/conversations", s.listConversationsHandler)
 	s.app.Get("/crm/conversations/:user_id", s.getConversationHandler)
+
+	// WebSocket route
+	s.app.Get("/ws/messages", s.websocketHandler)
 }

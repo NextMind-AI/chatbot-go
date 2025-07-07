@@ -18,5 +18,6 @@ func (mp *MessageProcessor) processWithAI(ctx context.Context, userID string, ch
 		&mp.redisClient,
 		&mp.elevenLabsClient,
 		userID,
+		mp.storeBotMessage,
 	)
 }

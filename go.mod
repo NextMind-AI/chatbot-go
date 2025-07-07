@@ -5,6 +5,7 @@ go 1.24.3
 require (
 	github.com/aws/aws-sdk-go v1.55.7
 	github.com/gofiber/fiber/v3 v3.0.0-beta.4
+	github.com/gorilla/websocket v1.5.1
 	github.com/invopop/jsonschema v0.13.0
 	github.com/joho/godotenv v1.5.1
 	github.com/openai/openai-go v1.1.0

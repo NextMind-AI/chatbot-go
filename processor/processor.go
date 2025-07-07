@@ -12,6 +12,9 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// WebSocketCallback is a function type for WebSocket message broadcasting
+type WebSocketCallback func(msgType, userID, message, role string)
+
 type MessageProcessor struct {
 	vonageClient     vonage.Client
 	redisClient      redis.Client
@@ -19,6 +22,7 @@ type MessageProcessor struct {
 	elevenLabsClient elevenlabs.Client
 	executionManager *execution.Manager
 	debounceManager  *DebounceManager
+	wsCallback       WebSocketCallback
 }
 
 func NewMessageProcessor(vonageClient vonage.Client, redisClient redis.Client, openaiClient openai.Client, elevenLabsClient elevenlabs.Client, execManager *execution.Manager) *MessageProcessor {
@@ -29,6 +33,19 @@ func NewMessageProcessor(vonageClient vonage.Client, redisClient redis.Client, o
 		elevenLabsClient: elevenLabsClient,
 		executionManager: execManager,
 		debounceManager:  NewDebounceManager(),
+		wsCallback:       nil, // Will be set by the server
+	}
+}
+
+// SetWebSocketCallback sets the callback function for WebSocket notifications
+func (mp *MessageProcessor) SetWebSocketCallback(callback WebSocketCallback) {
+	mp.wsCallback = callback
+}
+
+// notifyWebSocket sends a notification via WebSocket if callback is set
+func (mp *MessageProcessor) notifyWebSocket(msgType, userID, message, role string) {
+	if mp.wsCallback != nil {
+		mp.wsCallback(msgType, userID, message, role)
 	}
 }
 
@@ -140,7 +157,7 @@ func (mp *MessageProcessor) sendFallbackResponse(userID string) {
 			Msg("Sent fallback response to user")
 
 		// Store the fallback message in chat history
-		if err := mp.redisClient.AddBotMessage(userID, fallbackMessage); err != nil {
+		if err := mp.storeBotMessage(userID, fallbackMessage); err != nil {
 			log.Error().
 				Err(err).
 				Str("user_id", userID).
@@ -197,7 +214,7 @@ func (mp *MessageProcessor) sendTimeoutResponse(userID string) {
 			Str("user_id", userID).
 			Msg("Sent timeout response to user")
 
-		if err := mp.redisClient.AddBotMessage(userID, timeoutMessage); err != nil {
+		if err := mp.storeBotMessage(userID, timeoutMessage); err != nil {
 			log.Error().
 				Err(err).
 				Str("user_id", userID).
