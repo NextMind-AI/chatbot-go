@@ -14,8 +14,22 @@ import (
 func (s *Server) listConversationsHandler(c fiber.Ctx) error {
 	log.Info().Msg("Received request to list conversations")
 
+	// Validate that we have a message processor
+	if s.messageProcessor == nil {
+		log.Error().Msg("Message processor is nil")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Server not properly initialized",
+		})
+	}
+
 	// Get Redis client from message processor
 	redisClient := s.messageProcessor.GetRedisClient()
+	if redisClient == nil {
+		log.Error().Msg("Redis client is nil")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Database connection not available",
+		})
+	}
 
 	// Get all active conversations
 	userIDs, err := redisClient.GetAllActiveConversations()
@@ -26,10 +40,20 @@ func (s *Server) listConversationsHandler(c fiber.Ctx) error {
 		})
 	}
 
+	// Handle case where no conversations exist
+	if len(userIDs) == 0 {
+		log.Info().Msg("No active conversations found")
+		return c.JSON([]ConversationSummary{})
+	}
+
 	var summaries []ConversationSummary
 
 	// Get summary for each conversation
 	for _, userID := range userIDs {
+		if userID == "" {
+			continue // Skip empty user IDs
+		}
+
 		chatHistory, err := redisClient.GetChatHistory(userID)
 		if err != nil {
 			log.Error().Err(err).Str("user_id", userID).Msg("Error getting chat history")
@@ -74,6 +98,14 @@ func (s *Server) getConversationHandler(c fiber.Ctx) error {
 
 	log.Info().Str("user_id", userID).Msg("Received request to get conversation")
 
+	// Validate that we have a message processor
+	if s.messageProcessor == nil {
+		log.Error().Msg("Message processor is nil")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Server not properly initialized",
+		})
+	}
+
 	// Parse query parameters
 	page := 1
 	pageSize := 20
@@ -115,6 +147,12 @@ func (s *Server) getConversationHandler(c fiber.Ctx) error {
 
 	// Get Redis client
 	redisClient := s.messageProcessor.GetRedisClient()
+	if redisClient == nil {
+		log.Error().Msg("Redis client is nil")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Database connection not available",
+		})
+	}
 
 	// Get paginated chat history
 	messages, totalCount, err := redisClient.GetChatHistoryWithPagination(userID, page, pageSize, startTime, endTime)
