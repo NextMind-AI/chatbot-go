@@ -124,3 +124,19 @@ func (s *Server) crmConversationMessagesHandler(c fiber.Ctx) error {
 
 	return c.JSON(response)
 }
+
+
+// appMessageCountHandler trata POST /crm/messages-count
+func (s *Server) appMessageCountHandler(c fiber.Ctx) error {
+    log.Info().Msg("Received app message count request")
+
+    var req AppMessageCountRequest
+
+    log.Info().
+        Str("application_id", req.ApplicationID).
+        Str("month", req.Month).
+        Int("count", req.Count).
+        Msg("Stored monthly message count")
+
+    return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "success"})
+}

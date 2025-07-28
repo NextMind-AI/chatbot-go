@@ -37,3 +37,9 @@ type ErrorDetail struct {
 	Message string      `json:"message"`
 	Details interface{} `json:"details,omitempty"`
 }
+
+type AppMessageCountRequest struct {
+    ApplicationID string `json:"application_id"`
+    Month         string `json:"month"`          // no formato YYYY-MM
+    Count         int    `json:"count"`
+}
