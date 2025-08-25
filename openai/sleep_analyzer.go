@@ -2,13 +2,13 @@ package openai
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
+	// "encoding/json"
+	// "fmt"
 	"time"
 
 	"github.com/NextMind-AI/chatbot-go/redis"
 
-	"github.com/openai/openai-go"
+	// "github.com/openai/openai-go"
 	"github.com/rs/zerolog/log"
 )
 
@@ -49,102 +49,104 @@ func (c *Client) DetermineSleepTime(
 	userName string,
 	chatHistory []redis.ChatMessage,
 ) (int, error) {
-	// Convert the full chat history to OpenAI format for context
-	messages := []openai.ChatCompletionMessageParamUnion{
-		openai.SystemMessage(sleepAnalyzerPrompt),
-	}
 
-	// Add the conversation history for full context
-	for _, msg := range chatHistory {
-		switch msg.Role {
-		case "user":
-			messages = append(messages, openai.UserMessage(msg.Content))
-		case "assistant":
-			messages = append(messages, openai.AssistantMessage(msg.Content))
-		}
-	}
+	return 5, nil
+	// // Convert the full chat history to OpenAI format for context
+	// messages := []openai.ChatCompletionMessageParamUnion{
+	// 	openai.SystemMessage(sleepAnalyzerPrompt),
+	// }
 
-	// Get the last user message for logging
-	var lastUserMessage string
-	for i := len(chatHistory) - 1; i >= 0; i-- {
-		if chatHistory[i].Role == "user" {
-			lastUserMessage = chatHistory[i].Content
-			break
-		}
-	}
+	// // Add the conversation history for full context
+	// for _, msg := range chatHistory {
+	// 	switch msg.Role {
+	// 	case "user":
+	// 		messages = append(messages, openai.UserMessage(msg.Content))
+	// 	case "assistant":
+	// 		messages = append(messages, openai.AssistantMessage(msg.Content))
+	// 	}
+	// }
 
-	log.Info().
-		Str("user_id", userID).
-		Str("last_user_message", lastUserMessage).
-		Int("conversation_length", len(chatHistory)).
-		Msg("Analyzing full conversation context to determine sleep time")
+	// // Get the last user message for logging
+	// var lastUserMessage string
+	// for i := len(chatHistory) - 1; i >= 0; i-- {
+	// 	if chatHistory[i].Role == "user" {
+	// 		lastUserMessage = chatHistory[i].Content
+	// 		break
+	// 	}
+	// }
 
-	chatCompletion, err := c.client.Chat.Completions.New(
-		ctx,
-		openai.ChatCompletionNewParams{
-			Messages: messages,
-			Model:    c.model,
-			Tools:    []openai.ChatCompletionToolParam{sleepTool},
-			ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{
-				OfChatCompletionNamedToolChoice: &openai.ChatCompletionNamedToolChoiceParam{
-					Function: openai.ChatCompletionNamedToolChoiceFunctionParam{
-						Name: sleepTool.Function.Name,
-					},
-				},
-			},
-		},
-	)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("user_id", userID).
-			Msg("Error calling sleep analyzer")
-		return 10, err
-	}
+	// log.Info().
+	// 	Str("user_id", userID).
+	// 	Str("last_user_message", lastUserMessage).
+	// 	Int("conversation_length", len(chatHistory)).
+	// 	Msg("Analyzing full conversation context to determine sleep time")
 
-	// Extract sleep duration from the tool call
-	if len(chatCompletion.Choices) > 0 && len(chatCompletion.Choices[0].Message.ToolCalls) > 0 {
-		toolCall := chatCompletion.Choices[0].Message.ToolCalls[0]
+	// chatCompletion, err := c.client.Chat.Completions.New(
+	// 	ctx,
+	// 	openai.ChatCompletionNewParams{
+	// 		Messages: messages,
+	// 		Model:    c.model,
+	// 		Tools:    []openai.ChatCompletionToolParam{sleepTool},
+	// 		ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{
+	// 			OfChatCompletionNamedToolChoice: &openai.ChatCompletionNamedToolChoiceParam{
+	// 				Function: openai.ChatCompletionNamedToolChoiceFunctionParam{
+	// 					Name: sleepTool.Function.Name,
+	// 				},
+	// 			},
+	// 		},
+	// 	},
+	// )
+	// if err != nil {
+	// 	log.Error().
+	// 		Err(err).
+	// 		Str("user_id", userID).
+	// 		Msg("Error calling sleep analyzer")
+	// 	return 10, err
+	// }
 
-		var args map[string]any
-		err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("user_id", userID).
-				Msg("Error parsing sleep analyzer response")
-			return 10, err
-		}
+	// // Extract sleep duration from the tool call
+	// if len(chatCompletion.Choices) > 0 && len(chatCompletion.Choices[0].Message.ToolCalls) > 0 {
+	// 	toolCall := chatCompletion.Choices[0].Message.ToolCalls[0]
 
-		seconds, ok := args["seconds"].(float64)
-		if !ok {
-			log.Error().
-				Str("user_id", userID).
-				Msg("Invalid seconds parameter from sleep analyzer")
-			return 10, fmt.Errorf("invalid seconds parameter")
-		}
+	// 	var args map[string]any
+	// 	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
+	// 	if err != nil {
+	// 		log.Error().
+	// 			Err(err).
+	// 			Str("user_id", userID).
+	// 			Msg("Error parsing sleep analyzer response")
+	// 		return 10, err
+	// 	}
 
-		// Ensure the value is within bounds (5-25 seconds)
-		sleepSeconds := int(seconds)
-		if sleepSeconds < 5 {
-			sleepSeconds = 5
-		} else if sleepSeconds > 25 {
-			sleepSeconds = 25
-		}
+	// 	seconds, ok := args["seconds"].(float64)
+	// 	if !ok {
+	// 		log.Error().
+	// 			Str("user_id", userID).
+	// 			Msg("Invalid seconds parameter from sleep analyzer")
+	// 		return 10, fmt.Errorf("invalid seconds parameter")
+	// 	}
 
-		log.Info().
-			Str("user_id", userID).
-			Int("sleep_seconds", sleepSeconds).
-			Str("last_user_message", lastUserMessage).
-			Msg("Sleep analyzer determined wait time from full conversation context")
+	// 	// Ensure the value is within bounds (5-25 seconds)
+	// 	sleepSeconds := int(seconds)
+	// 	if sleepSeconds < 5 {
+	// 		sleepSeconds = 5
+	// 	} else if sleepSeconds > 25 {
+	// 		sleepSeconds = 25
+	// 	}
 
-		return sleepSeconds, nil
-	}
+	// 	log.Info().
+	// 		Str("user_id", userID).
+	// 		Int("sleep_seconds", sleepSeconds).
+	// 		Str("last_user_message", lastUserMessage).
+	// 		Msg("Sleep analyzer determined wait time from full conversation context")
 
-	log.Warn().
-		Str("user_id", userID).
-		Msg("Sleep analyzer didn't return a tool call, using default")
-	return 10, nil
+	// 	return sleepSeconds, nil
+	// }
+
+	// log.Warn().
+	// 	Str("user_id", userID).
+	// 	Msg("Sleep analyzer didn't return a tool call, using default")
+	// return 10, nil
 }
 
 // ExecuteSleepAndRespond first determines sleep time, executes the sleep, then generates the response.
