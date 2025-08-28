@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
-	"regexp"
-	"strings"
 
 	"github.com/NextMind-AI/chatbot-go/redis"
 
@@ -16,73 +14,32 @@ import (
 
 var sleepAnalyzerPrompt = `Você é um analisador de conversas. Sua ÚNICA função é determinar quanto tempo esperar antes de responder a uma mensagem do usuário.
 
-Você DEVE analisar todo o contexto da conversa e a última mensagem do usuário para determinar um tempo de espera entre 3 e 15 segundos baseado na probabilidade do usuário ter terminado completamente seu pensamento.
+Você DEVE analisar todo o contexto da conversa e a última mensagem do usuário para determinar um tempo de espera entre 5 e 25 segundos baseado na probabilidade do usuário ter terminado completamente seu pensamento.
 
 Diretrizes para determinar o tempo de espera:
-- 3-6 segundos: Perguntas claras e diretas (ex: "O que é NextMind?", "Como funciona?")
-- 7-9 segundos: Primeira mensagem tipo cumprimento simples ("Oi", "Olá", "Bom dia")
-- 10-12 segundos: Mensagem parece completa mas pode levar a continuação (declarações gerais, tópicos abertos)
-- 13-15 segundos: Usuário provavelmente tem mais a dizer (pensamentos incompletos, frases que claramente continuam)
+- 5-8 segundos: Perguntas claras e diretas (ex: "O que é NextMind?", "Como funciona?")
+- 9-12 segundos: Primeira mensagem como cumprimentos simples ("Oi", "Olá", "Bom dia") 
+- 13-18 segundos: Mensagem parece completa mas pode levar a continuação (declarações gerais, tópicos abertos)
+- 19-25 segundos: Usuário provavelmente tem mais a dizer (pensamentos incompletos, frases que claramente continuam)
 
-Exemplos:
-- "O que é NextMind?" → 3 segundos
-- "Olá, tudo bem?" → 8 segundos
-- "Queria perguntar sobre seus serviços" → 9 segundos
-- "Deixa eu te falar uma coisa" → 14 segundos
-- "Eu estava pensando..." → 15 segundos
-- "Então né" → 14 segundos
+Exemplos específicos:
+- "O que é NextMind?" → 5 segundos (pergunta completa e clara)
+- "Como funciona?" → 5 segundos (pergunta completa e clara)
+- "Oi" → 10 segundos (primeira mensagem/cumprimento)
+- "Olá, tudo bem?" → 10 segundos (cumprimento que pode levar a mais conversa)
+- "Queria perguntar sobre seus serviços" → 12 segundos (completo mas pode ter especificidades)
+- "Deixa eu te falar uma coisa" → 20 segundos (claramente incompleto)
+- "Eu estava pensando..." → 22 segundos (claramente incompleto)
+- "Sobre aquela coisa" → 20 segundos (vago, provavelmente mais vindo)
+- "Ei" → 15 segundos (cumprimento que frequentemente leva a mais)
+- "Então né" → 23 segundos (início de conversa)
 
 Considere também o contexto da conversa:
-- Se for início da conversa, prefira valores ligeiramente maiores para cumprimentos.
-- Se a conversa já está em andamento, avalie melhor a completude da mensagem.
+- Se é o início da conversa, seja mais conservador com cumprimentos
+- Se a conversa já está em andamento, avalie melhor a completude da mensagem
+- Se o usuário acabou de fazer uma pergunta específica, provavelmente terminou o pensamento
 
 Você DEVE chamar a função sleep com o número de segundos determinado.`
-
-// decideSleepHeuristic tenta retornar imediatamente um tempo (3-15).
-// Retorna 0 se não conseguiu decidir (nesse caso, chama o analyzer).
-func decideSleepHeuristic(lastMessage string, recentMessages []redis.ChatMessage) int {
-	if lastMessage == "" {
-		return 5 // fallback barato
-	}
-
-	msg := strings.TrimSpace(lastMessage)
-	msgLower := strings.ToLower(msg)
-
-	// Pergunta clara? termina com ?
-	if strings.HasSuffix(msg, "?") {
-		return 3
-	}
-
-	// Cumprimentos curtos
-	if msgLower == "oi" || msgLower == "olá" || msgLower == "ola" || msgLower == "bom dia" || msgLower == "boa tarde" || msgLower == "boa noite" {
-		// se conversa já em andamento, ser mais curto
-		if len(recentMessages) > 3 {
-			return 5
-		}
-		return 8
-	}
-
-	// Frases que normalmente indicam continuação (reticências, vírgula final, "..." ou "etc", "deixa eu")
-	if strings.HasSuffix(msg, "...") || strings.HasSuffix(msg, "…") {
-		return 15
-	}
-	if strings.HasSuffix(msg, ",") || strings.HasSuffix(msg, " e") || strings.HasSuffix(msgLower, "então") || strings.HasSuffix(msgLower, "tá") {
-		return 10
-	}
-
-	// Padrões vagos / início de pensamento
-	if regexp.MustCompile(`(?i)\b(queria|vou|quero|estou pensando|deixa eu|sobre aquilo)\b`).MatchString(msg) {
-		return 7
-	}
-
-	// Pequena mensagem sem pontuação (provável cumprimento curto)
-	if len(msg) <= 3 {
-		return 6
-	}
-
-	// Se não bateu em heurística, devolve 0 para chamar o analisador
-	return 0
-}
 
 // DetermineSleepTime analyzes the full conversation context and determines how long to wait.
 // It forces the AI to call the sleep tool with an appropriate duration between 5-25 seconds.
@@ -92,7 +49,6 @@ func (c *Client) DetermineSleepTime(
 	userName string,
 	chatHistory []redis.ChatMessage,
 ) (int, error) {
-
 	// Convert the full chat history to OpenAI format for context
 	messages := []openai.ChatCompletionMessageParamUnion{
 		openai.SystemMessage(sleepAnalyzerPrompt),
@@ -168,14 +124,12 @@ func (c *Client) DetermineSleepTime(
 			return 10, fmt.Errorf("invalid seconds parameter")
 		}
 
-		// ... após parse do tool call e extração de 'seconds' como float64
+		// Ensure the value is within bounds (5-25 seconds)
 		sleepSeconds := int(seconds)
-
-		// Garantir intervalo 3..15
-		if sleepSeconds < 3 {
-			sleepSeconds = 3
-		} else if sleepSeconds > 15 {
-			sleepSeconds = 15
+		if sleepSeconds < 5 {
+			sleepSeconds = 5
+		} else if sleepSeconds > 25 {
+			sleepSeconds = 25
 		}
 
 		log.Info().
@@ -193,64 +147,21 @@ func (c *Client) DetermineSleepTime(
 	return 10, nil
 }
 
+// ExecuteSleepAndRespond first determines sleep time, executes the sleep, then generates the response.
+// This replaces the previous flow where the main AI decided whether and how long to sleep.
 func (c *Client) ExecuteSleepAndRespond(
 	ctx context.Context,
 	config streamingConfig,
 ) error {
-	// --- 0) obter última mensagem do usuário (se houver) ---
-	var lastUserMessage string
-	for i := len(config.chatHistory) - 1; i >= 0; i-- {
-		if config.chatHistory[i].Role == "user" {
-			lastUserMessage = config.chatHistory[i].Content
-			break
-		}
-	}
-
-	// --- 1) heurística rápida (evita chamar o modelo quando possível) ---
-	sleepSeconds := decideSleepHeuristic(lastUserMessage, config.chatHistory)
-	if sleepSeconds > 0 {
-		log.Info().
+	// Step 1: Determine sleep time using the sleep analyzer with full conversation context
+	sleepSeconds, err := c.DetermineSleepTime(ctx, config.userID, config.userName, config.chatHistory)
+	if err != nil {
+		log.Warn().
+			Err(err).
 			Str("user_id", config.userID).
-			Int("sleep_seconds", sleepSeconds).
-			Str("reason", "heuristic").
-			Str("last_user_message", lastUserMessage).
-			Msg("Determined sleep time via heuristic")
+			Msg("Error determining sleep time, continuing without sleep")
 	} else {
-		// --- 2) chamar o analyzer com timeout (fallback se algo der errado) ---
-		// usamos um timeout curto para não bloquear demais (ex.: 3s).
-		analyzerTimeout := 3 * time.Second
-		analyzerCtx, cancel := context.WithTimeout(ctx, analyzerTimeout)
-		defer cancel()
-
-		var err error
-		sleepSeconds, err = c.DetermineSleepTime(analyzerCtx, config.userID, config.userName, config.chatHistory)
-		if err != nil {
-			log.Warn().
-				Err(err).
-				Str("user_id", config.userID).
-				Str("last_user_message", lastUserMessage).
-				Msgf("DetermineSleepTime failed (timeout %s), falling back to default", analyzerTimeout)
-			// default curto para manter reatividade
-			sleepSeconds = 3
-		} else {
-			log.Info().
-				Str("user_id", config.userID).
-				Int("sleep_seconds", sleepSeconds).
-				Str("reason", "analyzer").
-				Str("last_user_message", lastUserMessage).
-				Msg("Determined sleep time via analyzer")
-		}
-	}
-
-	// --- 3) garantir bounds finais: 3..15 segundos ---
-	if sleepSeconds < 3 {
-		sleepSeconds = 3
-	} else if sleepSeconds > 15 {
-		sleepSeconds = 15
-	}
-
-	// --- 4) executar o sleep (respeitando cancelamento do contexto) ---
-	if sleepSeconds > 0 {
+		// Step 2: Execute the sleep
 		log.Info().
 			Str("user_id", config.userID).
 			Int("seconds", sleepSeconds).
@@ -270,7 +181,7 @@ func (c *Client) ExecuteSleepAndRespond(
 		}
 	}
 
-	// --- 5) Handle custom tools if any are defined (mantém seu fluxo atual) ---
+	// Step 3: Handle custom tools if any are defined
 	messages := c.convertChatHistoryWithUserName(config.chatHistory, config.userName, config.userID)
 	if len(c.tools) > 0 {
 		finalMessages, err := c.handleToolCalls(ctx, messages, config.userID)
@@ -284,12 +195,13 @@ func (c *Client) ExecuteSleepAndRespond(
 		}
 	}
 
-	// --- 6) Generate the actual response using streaming (without tools) ---
+	// Step 4: Generate the actual response using streaming (without tools in the streaming call)
 	log.Info().
 		Str("user_id", config.userID).
 		Msg("Starting response generation with streaming")
 
-	if err := c.streamResponseWithoutTools(ctx, config, messages); err != nil {
+	err = c.streamResponseWithoutTools(ctx, config, messages)
+	if err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", config.userID).
