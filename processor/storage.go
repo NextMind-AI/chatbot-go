@@ -1,7 +1,7 @@
 package processor
 
 import (
-	"chatbot/redis"
+	"github.com/NextMind-AI/chatbot-go/redis"
 )
 
 func (mp *MessageProcessor) storeUserMessage(userID string, processedMsg *ProcessedMessage) error {

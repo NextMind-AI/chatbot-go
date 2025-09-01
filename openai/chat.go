@@ -1,9 +1,10 @@
 package openai
 
 import (
-	"chatbot/redis"
 	"context"
 	"time"
+
+	"github.com/NextMind-AI/chatbot-go/redis"
 
 	"github.com/openai/openai-go"
 )
@@ -49,6 +50,6 @@ func (c *Client) ProcessChatWithTools(
 	}
 
 	// Step 3: Generate the actual response (without tools)
-	messages := convertChatHistoryWithUserName(chatHistory, userName, userID)
+	messages := c.convertChatHistoryWithUserName(chatHistory, userName, userID)
 	return c.ProcessChat(ctx, messages)
 }

@@ -1,13 +1,17 @@
 package openai
 
 import (
-	"chatbot/elevenlabs"
-	"chatbot/redis"
-	"chatbot/vonage"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
+
+	"github.com/NextMind-AI/chatbot-go/aiutils"
+	"github.com/NextMind-AI/chatbot-go/elevenlabs"
+	"github.com/NextMind-AI/chatbot-go/redis"
+	"github.com/NextMind-AI/chatbot-go/vonage"
 
 	"github.com/openai/openai-go"
 	"github.com/rs/zerolog/log"
@@ -76,8 +80,59 @@ func (c *Client) ProcessChatStreamingWithTools(
 // processStreamingChat handles the core streaming logic.
 // Since tools are no longer used, this simply converts history and streams the response.
 func (c *Client) processStreamingChat(ctx context.Context, config streamingConfig) error {
-	messages := convertChatHistoryWithUserName(config.chatHistory, config.userName, config.userID)
-	return c.streamResponse(ctx, config, messages)
+	// converte histórico p/ mensagens
+	messages := c.convertChatHistoryWithUserName(config.chatHistory, config.userName, config.userID)
+
+	updatedMessages, err := c.handleToolCalls(ctx, messages, config.userID)
+	if err != nil {
+		// se é um erro destinado ao usuário -> enviar imediatamente e não iniciar streaming
+		var userErr *aiutils.ToolCallUserError
+		if errors.As(err, &userErr) {
+			// construir Message simples
+			userMsg := Message{
+				Content: userErr.UserMessage,
+				Type:    "text",
+			}
+			// enviamos direto e consideramos o trabalho concluído (retornamos nil)
+			if sendErr := c.sendTextMessage(ctx, config, userMsg, 0); sendErr != nil {
+				log.Error().
+					Err(sendErr).
+					Str("user_id", config.userID).
+					Msg("failed to send user-facing error message")
+				return sendErr
+			}
+			log.Info().
+				Str("user_id", config.userID).
+				Msg("Sent user-facing tool error message; skipping streaming")
+			return nil
+		}
+		// erro normal
+		log.Error().
+			Err(err).
+			Str("user_id", config.userID).
+			Msg("❌ failed to process tool calls before streaming")
+		return err
+	}
+
+	// Se handleToolCalls não alterou as mensagens, updatedMessages == messages (mesmo conteúdo/len)
+	// Se alterou (por exemplo adicionou ToolMessage com os resultados), então usaremos streaming sem tools
+	didHandleToolCalls := len(updatedMessages) > len(messages)
+
+	if didHandleToolCalls {
+		log.Info().
+			Str("user_id", config.userID).
+			Int("original_messages", len(messages)).
+			Int("updated_messages", len(updatedMessages)).
+			Msg("🔁 Tool calls processed — starting streaming WITHOUT tools to avoid duplicate calls")
+		// use the streaming variant that does not include tools
+		return c.streamResponseWithoutTools(ctx, config, updatedMessages)
+	}
+
+	// nenhum tool call foi processado: normal streaming (com tools) — mantém o comportamento original
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("▶️ No tool calls processed — starting normal streaming (with tools)")
+	return c.streamResponse(ctx, config, updatedMessages)
 }
 
 // streamResponse creates a streaming chat completion and sends messages via WhatsApp as they arrive.
@@ -89,13 +144,30 @@ func (c *Client) streamResponse(
 ) error {
 	schemaParam := createSchemaParam()
 
-	stream := c.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
+	// Prepare tools for the request
+	tools := []openai.ChatCompletionToolParam{}
+	for _, tool := range c.tools {
+		tools = append(tools, tool.Definition)
+	}
+
+	params := openai.ChatCompletionNewParams{
 		Messages: messages,
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
 			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{JSONSchema: schemaParam},
 		},
-		Model: openai.ChatModelGPT4_1Mini,
-	})
+		Model: c.model,
+	}
+
+	// Add tools if any are defined
+	if len(tools) > 0 {
+		params.Tools = tools
+	}
+
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Starting new streaming response")
+
+	stream := c.client.Chat.Completions.NewStreaming(ctx, params)
 
 	parser := NewStreamingJSONParser()
 	var fullContent strings.Builder
@@ -106,14 +178,30 @@ func (c *Client) streamResponse(
 
 	go func() {
 		defer close(done)
+		log.Info().
+			Str("user_id", config.userID).
+			Msg("Started goroutine for sequential message sending")
 		c.sendMessagesSequentially(ctx, config, messageQueue)
+		log.Info().
+			Str("user_id", config.userID).
+			Msg("Goroutine for sequential message sending finished")
 	}()
+
+	totalMessagesQueued := 0
 
 	for stream.Next() {
 		evt := stream.Current()
+		log.Debug().
+			Str("user_id", config.userID).
+			Msg("Received new stream event")
 		if len(evt.Choices) > 0 {
 			content := evt.Choices[0].Delta.Content
 			fullContent.WriteString(content)
+
+			log.Debug().
+				Str("user_id", config.userID).
+				Str("content_chunk", content).
+				Msg("Appended content chunk to fullContent")
 
 			newMessages := parser.AddChunk(content)
 
@@ -121,10 +209,12 @@ func (c *Client) streamResponse(
 				messageIndex := parser.MsgCount - len(newMessages) + i
 				if !sentMessages[messageIndex] {
 					sentMessages[messageIndex] = true
+					totalMessagesQueued++
 
 					log.Info().
 						Str("user_id", config.userID).
 						Int("message_index", messageIndex).
+						Int("total_queued", totalMessagesQueued).
 						Str("content", msg.Content).
 						Str("type", msg.Type).
 						Msg("Queueing streamed message for sequential sending")
@@ -134,7 +224,15 @@ func (c *Client) streamResponse(
 						message: msg,
 						index:   messageIndex,
 					}:
+						log.Debug().
+							Str("user_id", config.userID).
+							Int("message_index", messageIndex).
+							Msg("Message successfully sent to messageQueue")
 					case <-ctx.Done():
+						log.Warn().
+							Str("user_id", config.userID).
+							Int("total_queued", totalMessagesQueued).
+							Msg("Context done while sending to messageQueue, closing queue")
 						close(messageQueue)
 						<-done
 						return ctx.Err()
@@ -144,14 +242,408 @@ func (c *Client) streamResponse(
 		}
 	}
 
+	log.Info().
+		Str("user_id", config.userID).
+		Int("total_messages_queued", totalMessagesQueued).
+		Msg("Stream finished, closing messageQueue")
+
 	close(messageQueue)
 	<-done
 
 	if err := stream.Err(); err != nil {
+		log.Error().
+			Str("user_id", config.userID).
+			Err(err).
+			Msg("Stream encountered error")
 		return err
 	}
 
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Finalizing streaming response")
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
+}
+
+// streamResponseWithoutTools streams the response without including tools in the streaming call
+func (c *Client) streamResponseWithoutTools(
+	ctx context.Context,
+	config streamingConfig,
+	messages []openai.ChatCompletionMessageParamUnion,
+) error {
+	schemaParam := createSchemaParam()
+
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Starting new streaming response (without tools)")
+
+	// IMPORTANTE: sanitize messages to avoid sending role:"tool" directly to the API.
+	sanitizedMessages := aiutils.SanitizeMessagesForNoTools(messages)
+
+    stream := c.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
+        Messages: sanitizedMessages, // <- usamos sanitizedMessages aqui
+        ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+            OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{JSONSchema: schemaParam},
+        },
+        Model: c.model,
+    })
+
+	parser := NewStreamingJSONParser()
+	var fullContent strings.Builder
+	sentMessages := make(map[int]bool)
+	totalMessagesQueued := 0
+
+	messageQueue := make(chan messageWithIndex, 100)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		log.Info().
+			Str("user_id", config.userID).
+			Msg("Started goroutine for sequential message sending (without tools)")
+		c.sendMessagesSequentially(ctx, config, messageQueue)
+		log.Info().
+			Str("user_id", config.userID).
+			Msg("Goroutine for sequential message sending finished (without tools)")
+	}()
+
+	for stream.Next() {
+		evt := stream.Current()
+		log.Debug().
+			Str("user_id", config.userID).
+			Msg("Received new stream event (without tools)")
+		if len(evt.Choices) > 0 {
+			content := evt.Choices[0].Delta.Content
+			fullContent.WriteString(content)
+
+			log.Debug().
+				Str("user_id", config.userID).
+				Str("content_chunk", content).
+				Msg("Appended content chunk to fullContent (without tools)")
+
+			newMessages := parser.AddChunk(content)
+
+			if len(newMessages) > 0 {
+				log.Info().
+					Str("user_id", config.userID).
+					Int("new_messages_count", len(newMessages)).
+					Msg("Parser found new messages in chunk (without tools)")
+			}
+
+			for i, msg := range newMessages {
+				messageIndex := parser.MsgCount - len(newMessages) + i
+				if !sentMessages[messageIndex] {
+					sentMessages[messageIndex] = true
+					totalMessagesQueued++
+
+					log.Info().
+						Str("user_id", config.userID).
+						Int("message_index", messageIndex).
+						Int("total_queued", totalMessagesQueued).
+						Str("content", msg.Content).
+						Str("type", msg.Type).
+						Msg("Queueing streamed message for sequential sending (without tools)")
+
+					select {
+					case messageQueue <- messageWithIndex{
+						message: msg,
+						index:   messageIndex,
+					}:
+						log.Debug().
+							Str("user_id", config.userID).
+							Int("message_index", messageIndex).
+							Msg("Message sent to messageQueue (without tools)")
+					case <-ctx.Done():
+						log.Warn().
+							Str("user_id", config.userID).
+							Int("total_queued", totalMessagesQueued).
+							Msg("Context done while sending to messageQueue (without tools), closing queue")
+						close(messageQueue)
+						<-done
+						return ctx.Err()
+					}
+				}
+			}
+		}
+	}
+
+	log.Info().
+		Str("user_id", config.userID).
+		Int("total_messages_queued", totalMessagesQueued).
+		Msg("Stream finished, closing messageQueue (without tools)")
+
+	// Check if no messages were queued during streaming
+	if totalMessagesQueued == 0 {
+		log.Warn().
+			Str("user_id", config.userID).
+			Msg("WARNING: No messages were queued during streaming - this is why the bot didn't respond!")
+	}
+
+	close(messageQueue)
+	<-done
+
+	if err := stream.Err(); err != nil {
+		log.Error().
+			Str("user_id", config.userID).
+			Err(err).
+			Msg("Stream encountered error (without tools)")
+		return err
+	}
+
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Finalizing streaming response (without tools)")
+	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
+}
+
+// Ajuste o import no topo do arquivo:
+// import aiutils "github.com/yourorg/aiutils"
+
+func (c *Client) handleToolCalls(
+	ctx context.Context,
+	messages []openai.ChatCompletionMessageParamUnion,
+	userID string,
+) ([]openai.ChatCompletionMessageParamUnion, error) {
+
+	// Preparar ferramentas registradas
+	tools := make([]openai.ChatCompletionToolParam, 0, len(c.tools))
+	for _, tool := range c.tools {
+		tools = append(tools, tool.Definition)
+	}
+
+	log.Info().
+		Str("user_id", userID).
+		Int("tool_count", len(tools)).
+		Msg("🔧 Calling AI with custom tools")
+
+	// Chamada ao modelo com ferramentas
+	completion, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Messages: messages,
+		Tools:    tools,
+		Model:    c.model,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("❌ failed to get completion with tools: %w", err)
+	}
+
+	// Log raw response para debugging
+	log.Debug().
+		Interface("raw_completion", completion).
+		Msg("📥 Raw AI completion received")
+
+	// Validar se houve choices
+	if len(completion.Choices) == 0 {
+		log.Warn().Str("user_id", userID).Msg("⚠️ AI response had no choices")
+		return messages, nil
+	}
+
+	// 1) try SDK tool-calls (normal flow)
+	sdkToolCalls := completion.Choices[0].Message.ToolCalls
+
+	// 2) fallback: se SDK não apresentou tool calls, tentar extrair com helper
+	var fallbackToolCalls []aiutils.ToolCall
+	if len(sdkToolCalls) == 0 {
+		tcs, _, err := aiutils.ExtractToolCallsFromCompletion(completion)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("user_id", userID).
+				Msg("❌ Failed to extract tool_calls from raw completion (fallback)")
+		} else if len(tcs) > 0 {
+			fallbackToolCalls = tcs
+			log.Info().
+				Str("user_id", userID).
+				Int("found_tool_calls", len(fallbackToolCalls)).
+				Msg("⚠️ Found tool_calls in raw completion (fallback)")
+			// opcional: injetar JSON corrigido de volta no completion (ver abaixo)
+		}
+	}
+
+	// se nenhum caminho trouxe tool calls, seguir normalmente
+	if len(sdkToolCalls) == 0 && len(fallbackToolCalls) == 0 {
+		log.Info().
+			Str("user_id", userID).
+			Msg("ℹ️ No tool calls made, proceeding with streaming")
+		return messages, nil
+	}
+
+	// Adicionar a mensagem do modelo às mensagens atualizadas (mantendo seu comportamento)
+	updatedMessages := append(messages, completion.Choices[0].Message.ToParam())
+
+	// ---------------------------------------------------------------------
+	// Processar tool calls vindos do SDK (se houver)
+	// ---------------------------------------------------------------------
+	if len(sdkToolCalls) > 0 {
+		for _, toolCall := range sdkToolCalls {
+			log.Info().
+				Str("user_id", userID).
+				Str("tool_name", toolCall.Function.Name).
+				Str("tool_id", toolCall.ID).
+				Msg("🔄 Processing tool call")
+
+			// Procurar handler correspondente
+			var handler ToolHandler
+			for _, tool := range c.tools {
+				if tool.Definition.Function.Name == toolCall.Function.Name {
+					handler = tool.Handler
+					break
+				}
+			}
+
+			if handler == nil {
+				log.Error().
+					Str("user_id", userID).
+					Str("tool_name", toolCall.Function.Name).
+					Msg("❌ No handler found for tool")
+				continue
+			}
+
+			// Log argumentos crus
+			log.Debug().
+				Str("user_id", userID).
+				Str("tool_name", toolCall.Function.Name).
+				Str("raw_arguments", toolCall.Function.Arguments).
+				Msg("📦 Received raw tool arguments")
+
+			// Parse dos argumentos (string JSON)
+			var args map[string]any
+			if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+				// tente tolerância (se estiver escapado, double-encoded etc) usando helper local se quiser,
+				// mas por simplicidade mantenho seu comportamento atual.
+				log.Error().
+					Err(err).
+					Str("user_id", userID).
+					Str("tool_name", toolCall.Function.Name).
+					Msg("❌ Failed to parse tool arguments (invalid JSON)")
+				continue
+			}
+
+			log.Debug().
+				Str("user_id", userID).
+				Str("tool_name", toolCall.Function.Name).
+				Interface("parsed_args", args).
+				Msg("✅ Parsed tool arguments")
+
+			// // Chamar handler
+			// result, err := handler(ctx, args)
+			// if err != nil {
+			// 	log.Error().
+			// 		Err(err).
+			// 		Str("user_id", userID).
+			// 		Str("tool_name", toolCall.Function.Name).
+			// 		Msg("❌ Tool handler returned error")
+			// 	result = fmt.Sprintf("Error: %s", err.Error())
+			// }
+
+			result, err := handler(ctx, args)
+			if err != nil {
+				userMsg := err.Error() // você pode formatar mais amigavelmente aqui
+				log.Error().
+					Err(err).
+					Str("user_id", userID).
+					Str("tool_name", toolCall.Function.Name).
+					Msg("❌ Tool handler returned error")
+				// Retorna erro especial com mensagem pronta para o usuário
+				return nil, &aiutils.ToolCallUserError{UserMessage: userMsg, Err: err}
+			}
+
+			log.Info().
+				Str("user_id", userID).
+				Str("tool_name", toolCall.Function.Name).
+				Str("result", result).
+				Msg("✅ Tool call completed")
+
+			// Append do resultado como ToolMessage
+			updatedMessages = append(updatedMessages, openai.ToolMessage(result, toolCall.ID))
+		}
+	}
+
+	// ---------------------------------------------------------------------
+	// Processar tool calls extraídos via fallback (se houver)
+	// ---------------------------------------------------------------------
+	if len(fallbackToolCalls) > 0 {
+		for _, tc := range fallbackToolCalls {
+			id := tc.ID
+			name := tc.Name
+
+			log.Info().
+				Str("user_id", userID).
+				Str("tool_name", name).
+				Str("tool_id", id).
+				Msg("🔄 Processing fallback tool call (will invoke handler directly)")
+
+			// encontrar handler
+			var handler ToolHandler
+			for _, tool := range c.tools {
+				// tente duas formas de comparação para evitar mismatch (ajuste conforme seu Definition)
+				if tool.Definition.Function.Name == name || tool.Definition.Function.Name == strings.ToLower(name) || tool.Definition.Function.Name == strings.TrimSpace(name) {
+					handler = tool.Handler
+					break
+				}
+			}
+			if handler == nil {
+				// tentar também comparar pelo "title" / "name" se seu Definition tiver outro campo
+				for _, tool := range c.tools {
+					if tool.Definition.Function.Name == name || strings.EqualFold(tool.Definition.Function.Name, name) {
+						handler = tool.Handler
+						break
+					}
+				}
+			}
+
+			if handler == nil {
+				log.Error().
+					Str("user_id", userID).
+					Str("tool_name", name).
+					Msg("❌ No handler found for tool (fallback)")
+				continue
+			}
+
+			// preparar args: tc.Arguments já é map[string]interface{} na maioria dos casos
+			args := make(map[string]any)
+			if tc.Arguments != nil {
+				for k, v := range tc.Arguments {
+					args[k] = v
+				}
+			}
+
+			// chamar handler SINCRO (assim como no fluxo normal)
+			result, err := handler(ctx, args)
+			if err != nil {
+				userMsg := err.Error()
+				log.Error().
+					Err(err).
+					Str("user_id", userID).
+					Str("tool_name", name).
+					Msg("❌ Tool handler returned error (fallback)")
+				return nil, &aiutils.ToolCallUserError{UserMessage: userMsg, Err: err}
+			} else {
+				log.Info().
+					Str("user_id", userID).
+					Str("tool_name", name).
+					Str("result", result).
+					Msg("✅ Fallback tool call completed")
+			}
+
+			// append do resultado como ToolMessage (mesma abordagem do fluxo normal)
+			// se id for vazio, use um id gerado (ex: "fallback_<name>") para consistência
+			if id == "" {
+				id = "fallback_" + name
+			}
+			updatedMessages = append(updatedMessages, openai.ToolMessage(result, id))
+
+			// OPCIONAL: se quiser que outros pontos do sistema vejam esse tool call como
+			// se o modelo tivesse retornado uma function_call, você pode reescrever
+			// completion.Choices[0].Message.Content com o JSON normalizado (corr string)
+			// — faça isso apenas se a struct permitir atribuição direta:
+			//
+			// if completion.Choices != nil && len(completion.Choices) > 0 {
+			//     // exemplo: se Message.Content for *string ou string — ajuste conforme SDK
+			//     completion.Choices[0].Message.Content = correctedJSON
+			// }
+		}
+	}
+
+	return updatedMessages, nil
 }
 
 // messageWithIndex wraps a message with its index for ordered processing
@@ -167,96 +659,180 @@ func (c *Client) sendMessagesSequentially(
 	messageQueue <-chan messageWithIndex,
 ) {
 	isFirstMessage := true
+	messagesProcessed := 0
 
-	for msgWithIndex := range messageQueue {
-		msg := msgWithIndex.message
-		messageIndex := msgWithIndex.index
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Starting sequential message processing goroutine")
 
-		if !isFirstMessage {
-			select {
-			case <-time.After(500 * time.Millisecond):
-			case <-ctx.Done():
-				log.Info().
-					Str("user_id", config.userID).
-					Msg("Context cancelled during debounce delay")
-				return
-			}
-		}
-		isFirstMessage = false
-
+	defer func() {
 		log.Info().
 			Str("user_id", config.userID).
-			Int("message_index", messageIndex).
-			Str("content", msg.Content).
-			Str("type", msg.Type).
-			Msg("Sending message sequentially")
+			Int("total_messages_processed", messagesProcessed).
+			Msg("Sequential message processing goroutine finished")
+	}()
 
-		if msg.Type == "audio" {
-			audioURL, err := config.elevenLabsClient.ConvertTextToSpeechDefault(
-				msg.Content,
-			)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("user_id", config.userID).
-					Str("content", msg.Content).
-					Int("message_index", messageIndex).
-					Msg("Error converting text to speech")
-				continue
-			}
-
-			response, err := config.vonageClient.SendWhatsAppAudioMessage(
-				config.toNumber,
-				audioURL,
-			)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("user_id", config.userID).
-					Str("to", config.toNumber).
-					Str("audio_url", audioURL).
-					Int("message_index", messageIndex).
-					Msg("Error sending WhatsApp audio message")
-			} else {
-				log.Info().
-					Str("user_id", config.userID).
-					Str("message_uuid", response.MessageUUID).
-					Str("audio_url", audioURL).
-					Int("message_index", messageIndex).
-					Msg("Sent audio message via Vonage in sequence")
-			}
-		} else {
-			response, err := config.vonageClient.SendWhatsAppTextMessage(
-				config.toNumber,
-				msg.Content,
-			)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("user_id", config.userID).
-					Str("to", config.toNumber).
-					Str("content", msg.Content).
-					Int("message_index", messageIndex).
-					Msg("Error sending WhatsApp text message")
-			} else {
-				log.Info().
-					Str("user_id", config.userID).
-					Str("message_uuid", response.MessageUUID).
-					Str("content", msg.Content).
-					Int("message_index", messageIndex).
-					Msg("Sent text message via Vonage in sequence")
-			}
-		}
-
+	for {
 		select {
+		case msgWithIndex, ok := <-messageQueue:
+			if !ok {
+				log.Info().
+					Str("user_id", config.userID).
+					Int("messages_processed", messagesProcessed).
+					Msg("Message queue closed, finishing sequential processing")
+				return
+			}
+
+			msg := msgWithIndex.message
+			messageIndex := msgWithIndex.index
+
+			log.Info().
+				Str("user_id", config.userID).
+				Int("message_index", messageIndex).
+				Int("messages_processed_so_far", messagesProcessed).
+				Str("content", msg.Content).
+				Str("type", msg.Type).
+				Msg("Processing message from queue")
+
+			if !isFirstMessage {
+				log.Debug().
+					Str("user_id", config.userID).
+					Msg("Applying 500ms delay between messages")
+
+				select {
+				case <-time.After(500 * time.Millisecond):
+				case <-ctx.Done():
+					log.Info().
+						Str("user_id", config.userID).
+						Msg("Context cancelled during debounce delay")
+					return
+				}
+			}
+			isFirstMessage = false
+
+			// Enviar a mensagem
+			if msg.Type == "audio" {
+				if err := c.sendAudioMessage(ctx, config, msg, messageIndex); err != nil {
+					log.Error().
+						Err(err).
+						Str("user_id", config.userID).
+						Int("message_index", messageIndex).
+						Msg("Failed to send audio message, continuing with next")
+				} else {
+					messagesProcessed++
+				}
+			} else {
+				if err := c.sendTextMessage(ctx, config, msg, messageIndex); err != nil {
+					log.Error().
+						Err(err).
+						Str("user_id", config.userID).
+						Int("message_index", messageIndex).
+						Msg("Failed to send text message, continuing with next")
+				} else {
+					messagesProcessed++
+				}
+			}
+
 		case <-ctx.Done():
 			log.Info().
 				Str("user_id", config.userID).
-				Msg("Context cancelled, stopping message sending")
+				Int("messages_processed", messagesProcessed).
+				Msg("Context cancelled, stopping sequential message processing")
 			return
-		default:
 		}
 	}
+}
+
+// Funções auxiliares para melhor organização e logs
+func (c *Client) sendAudioMessage(
+	_ context.Context,
+	config streamingConfig,
+	msg Message,
+	messageIndex int,
+) error {
+	log.Info().
+		Str("user_id", config.userID).
+		Int("message_index", messageIndex).
+		Str("content", msg.Content).
+		Msg("Converting text to speech")
+
+	audioURL, err := config.elevenLabsClient.ConvertTextToSpeechDefault(msg.Content)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", config.userID).
+			Str("content", msg.Content).
+			Int("message_index", messageIndex).
+			Msg("Error converting text to speech")
+		return err
+	}
+
+	log.Info().
+		Str("user_id", config.userID).
+		Int("message_index", messageIndex).
+		Str("audio_url", audioURL).
+		Msg("Sending audio message to Vonage")
+
+	response, err := config.vonageClient.SendWhatsAppAudioMessage(
+		config.toNumber,
+		audioURL,
+	)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", config.userID).
+			Str("to", config.toNumber).
+			Str("audio_url", audioURL).
+			Int("message_index", messageIndex).
+			Msg("Error sending WhatsApp audio message to Vonage")
+		return err
+	}
+
+	log.Info().
+		Str("user_id", config.userID).
+		Str("message_uuid", response.MessageUUID).
+		Str("audio_url", audioURL).
+		Int("message_index", messageIndex).
+		Msg("Successfully sent audio message via Vonage")
+
+	return nil
+}
+
+func (c *Client) sendTextMessage(
+	_ context.Context,
+	config streamingConfig,
+	msg Message,
+	messageIndex int,
+) error {
+	log.Info().
+		Str("user_id", config.userID).
+		Int("message_index", messageIndex).
+		Str("content", msg.Content).
+		Msg("Sending text message to Vonage")
+
+	response, err := config.vonageClient.SendWhatsAppTextMessage(
+		config.toNumber,
+		msg.Content,
+	)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", config.userID).
+			Str("to", config.toNumber).
+			Str("content", msg.Content).
+			Int("message_index", messageIndex).
+			Msg("Error sending WhatsApp text message to Vonage")
+		return err
+	}
+
+	log.Info().
+		Str("user_id", config.userID).
+		Str("message_uuid", response.MessageUUID).
+		Str("content", msg.Content).
+		Int("message_index", messageIndex).
+		Msg("Successfully sent text message via Vonage")
+
+	return nil
 }
 
 // finalizeStreamingResponse validates the final JSON response and stores it in Redis.
@@ -266,6 +842,14 @@ func (c *Client) finalizeStreamingResponse(
 	fullContent string,
 	redisClient *redis.Client,
 ) error {
+	log.Info().
+		Str("user_id", userID).
+		Int("content_length", len(fullContent)).
+		Msg("Finalizing streaming response - validating JSON")
+
+	// Debug: show the complete JSON being parsed
+	fmt.Printf("DEBUG: Complete JSON being parsed: %q\n", fullContent)
+
 	var messageList MessageList
 	if err := json.Unmarshal([]byte(fullContent), &messageList); err != nil {
 		log.Error().
@@ -276,18 +860,39 @@ func (c *Client) finalizeStreamingResponse(
 		return err
 	}
 
+	log.Info().
+		Str("user_id", userID).
+		Int("message_count", len(messageList.Messages)).
+		Msg("Successfully parsed JSON response")
+
 	allMessagesContent := []string{}
-	for _, msg := range messageList.Messages {
+	for i, msg := range messageList.Messages {
 		allMessagesContent = append(allMessagesContent, msg.Content)
+		log.Debug().
+			Str("user_id", userID).
+			Int("message_index", i).
+			Str("content", msg.Content).
+			Str("type", msg.Type).
+			Msg("Processing message for Redis storage")
 	}
 	fullResponse := strings.Join(allMessagesContent, "\n\n")
+
+	log.Info().
+		Str("user_id", userID).
+		Int("final_response_length", len(fullResponse)).
+		Msg("Storing bot message in Redis")
 
 	if err := redisClient.AddBotMessage(userID, fullResponse); err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", userID).
 			Msg("Error storing bot message in Redis")
+		return err
 	}
+
+	log.Info().
+		Str("user_id", userID).
+		Msg("Successfully stored bot message in Redis")
 
 	return nil
 }

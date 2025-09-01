@@ -71,7 +71,7 @@ AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
 package main
 
 import (
-    "chatbot/elevenlabs"
+    "github.com/NextMind-AI/chatbot-go/elevenlabs"
     "net/http"
     "os"
 
@@ -115,7 +115,7 @@ func main() {
 package main
 
 import (
-    "chatbot/elevenlabs"
+    "github.com/NextMind-AI/chatbot-go/elevenlabs"
     "net/http"
 
     "github.com/aws/aws-sdk-go/aws"

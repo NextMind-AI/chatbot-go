@@ -1,8 +1,9 @@
 package processor
 
 import (
-	"chatbot/redis"
 	"context"
+
+	"github.com/NextMind-AI/chatbot-go/redis"
 )
 
 func (mp *MessageProcessor) markMessageAsRead(messageUUID string) error {

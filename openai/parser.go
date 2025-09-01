@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -28,7 +29,19 @@ func NewStreamingJSONParser() *StreamingJSONParser {
 // to parse any complete Message objects. Returns a slice of newly parsed messages.
 func (p *StreamingJSONParser) AddChunk(chunk string) []Message {
 	p.buffer.WriteString(chunk)
-	return p.parseNewMessages()
+
+	// Debug logging to understand what content we're receiving
+	if len(chunk) > 0 {
+		fmt.Printf("DEBUG: AddChunk received: %q\n", chunk)
+		fmt.Printf("DEBUG: Buffer now contains: %q\n", p.buffer.String())
+	}
+
+	messages := p.parseNewMessages()
+	if len(messages) > 0 {
+		fmt.Printf("DEBUG: Parsed %d messages from chunk\n", len(messages))
+	}
+
+	return messages
 }
 
 // parseNewMessages scans the buffer for complete message objects and parses them.
@@ -37,40 +50,42 @@ func (p *StreamingJSONParser) parseNewMessages() []Message {
 	content := p.buffer.String()
 	var parsedMessages []Message
 
-	if !p.foundMessages && strings.Contains(content, `"messages":[`) {
-		p.foundMessages = true
-	}
+	fmt.Printf("DEBUG: parseNewMessages called, buffer length: %d, current MsgCount: %d\n", len(content), p.MsgCount)
 
-	searchContent := content[p.lastParsedPos:]
+	// Sempre tenta fazer parse do JSON completo se contém "messages"
+	if strings.Contains(content, `"messages":[`) || strings.Contains(content, `"messages": [`) {
+		fmt.Printf("DEBUG: Attempting to parse complete JSON\n")
 
-	for {
-		startIdx := strings.Index(searchContent, `{"content":`)
-		if startIdx == -1 {
-			startIdx = strings.Index(searchContent, `{"type":`)
-			if startIdx == -1 {
-				break
+		var messageList MessageList
+		if err := json.Unmarshal([]byte(content), &messageList); err == nil {
+			fmt.Printf("DEBUG: Successfully parsed complete JSON with %d total messages\n", len(messageList.Messages))
+
+			// Retorna apenas as mensagens que ainda não foram processadas
+			if len(messageList.Messages) > p.MsgCount {
+				newMessages := messageList.Messages[p.MsgCount:]
+				oldMsgCount := p.MsgCount
+				p.MsgCount = len(messageList.Messages)
+
+				fmt.Printf("DEBUG: Returning %d new messages (from %d to %d)\n", len(newMessages), oldMsgCount, p.MsgCount)
+
+				for i, msg := range newMessages {
+					fmt.Printf("DEBUG: New message %d: content=%q, type=%q\n", oldMsgCount+i+1, msg.Content, msg.Type)
+				}
+
+				return newMessages
+			} else {
+				fmt.Printf("DEBUG: No new messages to return (already processed %d messages)\n", p.MsgCount)
+				return parsedMessages
 			}
+		} else {
+			fmt.Printf("DEBUG: Failed to parse complete JSON: %v\n", err)
+			fmt.Printf("DEBUG: JSON content: %q\n", content)
 		}
-
-		fullStartIdx := p.lastParsedPos + startIdx
-
-		endIdx := p.findMessageEnd(content, fullStartIdx)
-		if endIdx == -1 {
-			break
-		}
-
-		messageJSON := content[fullStartIdx : endIdx+1]
-
-		var msg Message
-		if err := json.Unmarshal([]byte(messageJSON), &msg); err == nil {
-			p.MsgCount++
-			parsedMessages = append(parsedMessages, msg)
-		}
-
-		p.lastParsedPos = endIdx + 1
-		searchContent = content[p.lastParsedPos:]
+	} else {
+		fmt.Printf("DEBUG: No 'messages' array found in content yet\n")
 	}
 
+	fmt.Printf("DEBUG: parseNewMessages returning 0 messages (incomplete or invalid JSON)\n")
 	return parsedMessages
 }
 
@@ -81,6 +96,12 @@ func (p *StreamingJSONParser) findMessageEnd(content string, startIdx int) int {
 	braceCount := 0
 	inString := false
 	escaped := false
+
+	endPreview := startIdx + 50
+	if endPreview > len(content) {
+		endPreview = len(content)
+	}
+	fmt.Printf("DEBUG: findMessageEnd called for content starting at %d: %q\n", startIdx, content[startIdx:endPreview])
 
 	for i := startIdx; i < len(content); i++ {
 		char := content[i]
@@ -101,16 +122,19 @@ func (p *StreamingJSONParser) findMessageEnd(content string, startIdx int) int {
 		}
 
 		if !inString {
-			if char == '{' {
+			switch char {
+			case '{':
 				braceCount++
-			} else if char == '}' {
+			case '}':
 				braceCount--
 				if braceCount == 0 {
+					fmt.Printf("DEBUG: findMessageEnd found closing brace at index %d\n", i)
 					return i
 				}
 			}
 		}
 	}
 
+	fmt.Printf("DEBUG: findMessageEnd could not find closing brace, returning -1\n")
 	return -1
 }

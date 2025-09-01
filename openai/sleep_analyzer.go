@@ -1,11 +1,12 @@
 package openai
 
 import (
-	"chatbot/redis"
 	"context"
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/NextMind-AI/chatbot-go/redis"
 
 	"github.com/openai/openai-go"
 	"github.com/rs/zerolog/log"
@@ -82,7 +83,7 @@ func (c *Client) DetermineSleepTime(
 		ctx,
 		openai.ChatCompletionNewParams{
 			Messages: messages,
-			Model:    openai.ChatModelGPT4_1Mini,
+			Model:    c.model,
 			Tools:    []openai.ChatCompletionToolParam{sleepTool},
 			ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{
 				OfChatCompletionNamedToolChoice: &openai.ChatCompletionNamedToolChoiceParam{
@@ -180,7 +181,37 @@ func (c *Client) ExecuteSleepAndRespond(
 		}
 	}
 
-	// Step 3: Generate the actual response using the main chatbot (without sleep tool)
-	messages := convertChatHistoryWithUserName(config.chatHistory, config.userName, config.userID)
-	return c.streamResponse(ctx, config, messages)
+	// Step 3: Handle custom tools if any are defined
+	messages := c.convertChatHistoryWithUserName(config.chatHistory, config.userName, config.userID)
+	if len(c.tools) > 0 {
+		finalMessages, err := c.handleToolCalls(ctx, messages, config.userID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("user_id", config.userID).
+				Msg("Error handling tool calls, continuing with original messages")
+		} else {
+			messages = finalMessages
+		}
+	}
+
+	// Step 4: Generate the actual response using streaming (without tools in the streaming call)
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Starting response generation with streaming")
+
+	err = c.streamResponseWithoutTools(ctx, config, messages)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", config.userID).
+			Msg("Error in streaming response generation")
+		return err
+	}
+
+	log.Info().
+		Str("user_id", config.userID).
+		Msg("Completed message processing")
+
+	return nil
 }
