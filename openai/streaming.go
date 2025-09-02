@@ -264,136 +264,229 @@ func (c *Client) streamResponse(
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
 }
 
-// streamResponseWithoutTools streams the response without including tools in the streaming call
 func (c *Client) streamResponseWithoutTools(
 	ctx context.Context,
 	config streamingConfig,
 	messages []openai.ChatCompletionMessageParamUnion,
 ) error {
-	schemaParam := createSchemaParam()
+	logger := log.With().Str("user_id", config.userID).Logger()
+	logger.Info().Msg("Starting new streaming response (without tools)")
 
-	log.Info().
-		Str("user_id", config.userID).
-		Msg("Starting new streaming response (without tools)")
-
-	// IMPORTANTE: sanitize messages to avoid sending role:"tool" directly to the API.
+	// sanitize para evitar role:"tool"
 	sanitizedMessages := aiutils.SanitizeMessagesForNoTools(messages)
 
-    stream := c.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
-        Messages: sanitizedMessages, // <- usamos sanitizedMessages aqui
-        ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
-            OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{JSONSchema: schemaParam},
-        },
-        Model: c.model,
-    })
+	// abrir stream
+	startStream := time.Now()
+	stream := c.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
+		Messages: sanitizedMessages,
+		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{JSONSchema: createSchemaParam()},
+		},
+		Model: c.model,
+	})
+	logger.Info().Dur("stream_creation_elapsed", time.Since(startStream)).Msg("Streaming client created (without tools)")
 
 	parser := NewStreamingJSONParser()
 	var fullContent strings.Builder
 	sentMessages := make(map[int]bool)
 	totalMessagesQueued := 0
 
-	messageQueue := make(chan messageWithIndex, 100)
+	// local type para fila (não polui o package)
+	type queuedMsg struct {
+		msg   Message
+		index int
+	}
+
+	// buffer generoso para evitar bloqueios do produtor
+	messageQueue := make(chan queuedMsg, 1000)
 	done := make(chan struct{})
 
+	// Goroutine consumidora — batching + timeouts + envio (usa seus helpers sendTextMessage/sendAudioMessage)
 	go func() {
 		defer close(done)
-		log.Info().
-			Str("user_id", config.userID).
-			Msg("Started goroutine for sequential message sending (without tools)")
-		c.sendMessagesSequentially(ctx, config, messageQueue)
-		log.Info().
-			Str("user_id", config.userID).
-			Msg("Goroutine for sequential message sending finished (without tools)")
-	}()
+		logger.Info().Msg("Started inline goroutine for sequential message sending (without tools)")
 
-	for stream.Next() {
-		evt := stream.Current()
-		log.Debug().
-			Str("user_id", config.userID).
-			Msg("Received new stream event (without tools)")
-		if len(evt.Choices) > 0 {
-			content := evt.Choices[0].Delta.Content
-			fullContent.WriteString(content)
+		const (
+			maxBatch      = 8
+			batchTimeout  = 120 * time.Millisecond
+			perSendTimout = 4 * time.Second
+		)
 
-			log.Debug().
-				Str("user_id", config.userID).
-				Str("content_chunk", content).
-				Msg("Appended content chunk to fullContent (without tools)")
+		batch := make([]queuedMsg, 0, maxBatch)
+		timer := time.NewTimer(batchTimeout)
+		defer timer.Stop()
 
-			newMessages := parser.AddChunk(content)
-
-			if len(newMessages) > 0 {
-				log.Info().
-					Str("user_id", config.userID).
-					Int("new_messages_count", len(newMessages)).
-					Msg("Parser found new messages in chunk (without tools)")
+		flush := func() {
+			if len(batch) == 0 {
+				return
 			}
 
-			for i, msg := range newMessages {
-				messageIndex := parser.MsgCount - len(newMessages) + i
-				if !sentMessages[messageIndex] {
-					sentMessages[messageIndex] = true
-					totalMessagesQueued++
+			// separar audio x text
+			textParts := make([]string, 0, len(batch))
+			audioItems := make([]queuedMsg, 0)
 
-					log.Info().
-						Str("user_id", config.userID).
-						Int("message_index", messageIndex).
-						Int("total_queued", totalMessagesQueued).
-						Str("content", msg.Content).
-						Str("type", msg.Type).
-						Msg("Queueing streamed message for sequential sending (without tools)")
+			for _, it := range batch {
+				if strings.ToLower(it.msg.Type) == "audio" {
+					audioItems = append(audioItems, it)
+				} else {
+					textParts = append(textParts, it.msg.Content)
+				}
+			}
 
-					select {
-					case messageQueue <- messageWithIndex{
-						message: msg,
-						index:   messageIndex,
-					}:
-						log.Debug().
-							Str("user_id", config.userID).
-							Int("message_index", messageIndex).
-							Msg("Message sent to messageQueue (without tools)")
-					case <-ctx.Done():
-						log.Warn().
-							Str("user_id", config.userID).
-							Int("total_queued", totalMessagesQueued).
-							Msg("Context done while sending to messageQueue (without tools), closing queue")
-						close(messageQueue)
-						<-done
-						return ctx.Err()
+			// enviar texto combinado (se houver)
+			if len(textParts) > 0 {
+				combined := strings.Join(textParts, "\n\n")
+				pm := Message{Content: combined, Type: "text"}
+
+				sendCtx, cancel := context.WithTimeout(ctx, perSendTimout)
+				start := time.Now()
+				if err := c.sendTextMessage(sendCtx, config, pm, -1); err != nil {
+					logger.Error().Err(err).Int("batch_count", len(textParts)).Dur("elapsed", time.Since(start)).Msg("Failed to send text batch")
+				} else {
+					logger.Debug().Int("batch_count", len(textParts)).Dur("elapsed", time.Since(start)).Msg("Sent text batch")
+				}
+				cancel()
+			}
+
+			// enviar áudios individualmente
+			for _, ai := range audioItems {
+				sendCtx, cancel := context.WithTimeout(ctx, perSendTimout)
+				start := time.Now()
+				if err := c.sendAudioMessage(sendCtx, config, ai.msg, ai.index); err != nil {
+					logger.Error().Err(err).Int("message_index", ai.index).Dur("elapsed", time.Since(start)).Msg("Failed to send audio message")
+				} else {
+					logger.Debug().Int("message_index", ai.index).Dur("elapsed", time.Since(start)).Msg("Sent audio message")
+				}
+				cancel()
+			}
+
+			// reset batch
+			batch = batch[:0]
+		}
+
+		// loop consumidor
+		for {
+			// cheque cancelamento rapidamente
+			if ctx.Err() != nil {
+				flush()
+				logger.Info().Msg("Context canceled in consumer; flushing and exiting consumer goroutine")
+				return
+			}
+
+			select {
+			case <-ctx.Done():
+				flush()
+				return
+			case item, ok := <-messageQueue:
+				if !ok {
+					// canal fechado: flush final e sair
+					flush()
+					logger.Info().Msg("messageQueue closed - consumer exiting")
+					return
+				}
+				batch = append(batch, item)
+				if len(batch) >= maxBatch {
+					flush()
+					// reset timer de forma segura
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
 					}
+					timer.Reset(batchTimeout)
+				}
+			case <-timer.C:
+				flush()
+				timer.Reset(batchTimeout)
+			}
+		}
+	}()
+
+	// produtor: ler stream, parsear JSON incremental, enfileirar mensagens
+	for stream.Next() {
+		evt := stream.Current()
+
+		// defensive check: evitar panic se não vier nada
+		if evt.Choices == nil || len(evt.Choices) == 0 {
+			continue
+		}
+
+		delta := evt.Choices[0].Delta
+		content := delta.Content
+		if content == "" {
+			continue
+		}
+
+		fullContent.WriteString(content)
+		logger.Debug().Str("chunk_preview", func() string {
+			if len(content) > 200 {
+				return content[:200] + "…"
+			}
+			return content
+		}()).Msg("Appended content chunk (without tools)")
+
+		newMessages := parser.AddChunk(content) // espera-se []Message
+		if len(newMessages) > 0 {
+			logger.Info().Int("new_messages_count", len(newMessages)).Msg("Parser found new messages in chunk")
+		}
+
+		for i, msg := range newMessages {
+			messageIndex := parser.MsgCount - len(newMessages) + i
+			if sentMessages[messageIndex] {
+				continue
+			}
+			sentMessages[messageIndex] = true
+			totalMessagesQueued++
+
+			logger.Info().
+				Int("message_index", messageIndex).
+				Int("total_queued", totalMessagesQueued).
+				Str("type", msg.Type).
+				Msg("Queueing streamed message (without tools)")
+
+			// Tentativa não-bloqueante com retry curto; evita travar pipeline se queue cheia
+			select {
+			case messageQueue <- queuedMsg{msg: msg, index: messageIndex}:
+				logger.Debug().Int("message_index", messageIndex).Msg("Message enqueued")
+			default:
+				// fila cheia: tentar uma vez por curto tempo, depois dropar para evitar deadlock
+				logger.Warn().Int("message_index", messageIndex).Msg("messageQueue full; retrying briefly")
+				select {
+				case messageQueue <- queuedMsg{msg: msg, index: messageIndex}:
+					logger.Debug().Msg("Queued on retry")
+				case <-time.After(250 * time.Millisecond):
+					logger.Error().Int("message_index", messageIndex).Msg("Dropped message due to full queue")
+				case <-ctx.Done():
+					logger.Warn().Msg("Context canceled while queuing message; closing queue and exiting")
+					close(messageQueue)
+					<-done
+					return ctx.Err()
 				}
 			}
 		}
 	}
 
-	log.Info().
-		Str("user_id", config.userID).
-		Int("total_messages_queued", totalMessagesQueued).
-		Msg("Stream finished, closing messageQueue (without tools)")
-
-	// Check if no messages were queued during streaming
-	if totalMessagesQueued == 0 {
-		log.Warn().
-			Str("user_id", config.userID).
-			Msg("WARNING: No messages were queued during streaming - this is why the bot didn't respond!")
-	}
-
+	// stream terminou: fechar fila e esperar consumer encerrar
+	logger.Info().Int("total_messages_queued", totalMessagesQueued).Msg("Stream finished, closing messageQueue (without tools)")
 	close(messageQueue)
 	<-done
 
+	// verificar erro do stream
 	if err := stream.Err(); err != nil {
-		log.Error().
-			Str("user_id", config.userID).
-			Err(err).
-			Msg("Stream encountered error (without tools)")
+		logger.Error().Err(err).Msg("Stream encountered error (without tools)")
 		return err
 	}
 
-	log.Info().
-		Str("user_id", config.userID).
-		Msg("Finalizing streaming response (without tools)")
+	// se nada foi enfileirado, avisar (ajuda debug)
+	if totalMessagesQueued == 0 {
+		logger.Warn().Msg("WARNING: No messages were queued during streaming - bot may not have responded")
+	}
+
+	logger.Info().Msg("Finalizing streaming response (without tools)")
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
 }
+
 
 // remove mensagens antigas até o payload ficar <= maxBytes
 func shrinkMessagesByBytes(msgs []openai.ChatCompletionMessageParamUnion, maxBytes int) []openai.ChatCompletionMessageParamUnion {
