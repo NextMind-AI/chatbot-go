@@ -12,34 +12,25 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var sleepAnalyzerPrompt = `Você é um analisador de conversas. Sua ÚNICA função é determinar quanto tempo esperar antes de responder a uma mensagem do usuário.
+var sleepAnalyzerPrompt = `Você é um analisador de conversas. Sua ÚNICA função é determinar quantos segundos esperar (entre 5 e 15) antes de responder.
 
-Você DEVE analisar todo o contexto da conversa e a última mensagem do usuário para determinar um tempo de espera entre 5 e 25 segundos baseado na probabilidade do usuário ter terminado completamente seu pensamento.
+Regras resumidas:
+- 5–7s: perguntas claras e diretas (ex.: "O que é NextMind?", "Como funciona?")
+- 8–10s: cumprimentos simples / primeiro contato ("Oi", "Olá", "Bom dia")
+- 11–13s: mensagens completas que podem continuar (declarações, "Queria perguntar sobre seus serviços")
+- 14–15s: mensagens claramente incompletas ou que sugerem continuação ("Deixa eu te falar...", "Eu estava pensando...")
 
-Diretrizes para determinar o tempo de espera:
-- 5-8 segundos: Perguntas claras e diretas (ex: "O que é NextMind?", "Como funciona?")
-- 9-12 segundos: Primeira mensagem como cumprimentos simples ("Oi", "Olá", "Bom dia") 
-- 13-18 segundos: Mensagem parece completa mas pode levar a continuação (declarações gerais, tópicos abertos)
-- 19-25 segundos: Usuário provavelmente tem mais a dizer (pensamentos incompletos, frases que claramente continuam)
+Contexto:
+- Início da conversa → favoreça valores maiores na faixa.
+- Conversa em andamento ou pergunta específica → favoreça valores menores.
 
-Exemplos específicos:
-- "O que é NextMind?" → 5 segundos (pergunta completa e clara)
-- "Como funciona?" → 5 segundos (pergunta completa e clara)
-- "Oi" → 10 segundos (primeira mensagem/cumprimento)
-- "Olá, tudo bem?" → 10 segundos (cumprimento que pode levar a mais conversa)
-- "Queria perguntar sobre seus serviços" → 12 segundos (completo mas pode ter especificidades)
-- "Deixa eu te falar uma coisa" → 20 segundos (claramente incompleto)
-- "Eu estava pensando..." → 22 segundos (claramente incompleto)
-- "Sobre aquela coisa" → 20 segundos (vago, provavelmente mais vindo)
-- "Ei" → 15 segundos (cumprimento que frequentemente leva a mais)
-- "Então né" → 23 segundos (início de conversa)
+Exemplos:
+"O que é NextMind?" → 5
+"Oi" → 9
+"Queria perguntar sobre seus serviços" → 12
+"Eu estava pensando..." → 15
 
-Considere também o contexto da conversa:
-- Se é o início da conversa, seja mais conservador com cumprimentos
-- Se a conversa já está em andamento, avalie melhor a completude da mensagem
-- Se o usuário acabou de fazer uma pergunta específica, provavelmente terminou o pensamento
-
-Você DEVE chamar a função sleep com o número de segundos determinado.`
+Ação obrigatória: chame sleep(<segundos>) com o inteiro escolhido.`
 
 // DetermineSleepTime analyzes the full conversation context and determines how long to wait.
 // It forces the AI to call the sleep tool with an appropriate duration between 5-25 seconds.

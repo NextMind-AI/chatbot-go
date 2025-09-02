@@ -2,7 +2,7 @@ package openai
 
 import (
 	"context"
-	"time"
+	// "time"
 
 	"github.com/NextMind-AI/chatbot-go/redis"
 
@@ -37,17 +37,18 @@ func (c *Client) ProcessChatWithTools(
 	userName string,
 	chatHistory []redis.ChatMessage,
 ) (string, error) {
-	// Step 1: Determine sleep time using the sleep analyzer with full conversation context
-	sleepSeconds, err := c.DetermineSleepTime(ctx, userID, userName, chatHistory)
-	if err != nil {
-		// Log warning but continue without sleep
-		sleepSeconds = 0
-	}
+	// // Step 1: Determine sleep time using the sleep analyzer with full conversation context
+	// sleepSeconds, err := c.DetermineSleepTime(ctx, userID, userName, chatHistory)
+	// if err != nil {
+	// 	// Log warning but continue without sleep
+	// 	sleepSeconds = 0
+	// }
 
-	// Step 2: Execute the sleep if needed
-	if sleepSeconds > 0 {
-		time.Sleep(time.Duration(sleepSeconds) * time.Second)
-	}
+	// // Step 2: Execute the sleep if needed
+	// if sleepSeconds > 0 {
+	// 	time.Sleep(time.Duration(sleepSeconds) * time.Second)
+	// }
+	//TESTANDO
 
 	// Step 3: Generate the actual response (without tools)
 	messages := c.convertChatHistoryWithUserName(chatHistory, userName, userID)
