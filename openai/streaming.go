@@ -395,8 +395,25 @@ func (c *Client) streamResponseWithoutTools(
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
 }
 
-// Ajuste o import no topo do arquivo:
-// import aiutils "github.com/yourorg/aiutils"
+// remove mensagens antigas até o payload ficar <= maxBytes
+func shrinkMessagesByBytes(msgs []openai.ChatCompletionMessageParamUnion, maxBytes int) []openai.ChatCompletionMessageParamUnion {
+    // if it's already small, return
+    b, _ := json.Marshal(msgs)
+    if len(b) <= maxBytes {
+        return msgs
+    }
+    // remove mensagens mais antigas até caber
+    start := 0
+    for start < len(msgs) {
+        subset := msgs[start:]
+        b2, _ := json.Marshal(subset)
+        if len(b2) <= maxBytes || len(subset) == 0 {
+            return subset
+        }
+        start++
+    }
+    return msgs // fallback (não deve acontecer)
+}
 
 func (c *Client) handleToolCalls(
 	ctx context.Context,
@@ -410,24 +427,41 @@ func (c *Client) handleToolCalls(
 		tools = append(tools, tool.Definition)
 	}
 
+	messages = shrinkMessagesByBytes(messages, 60*1024)  //TESTANDO COM O SHRINK
+	// Antes de chamar a API, registre tempo e tamanho do payload
+	startReq := time.Now()
+	payloadBytes, _ := json.Marshal(messages) // size aproximado do request
 	log.Info().
 		Str("user_id", userID).
 		Int("tool_count", len(tools)).
-		Msg("🔧 Calling AI with custom tools")
+		Int("payload_bytes", len(payloadBytes)).
+		Msg("🔧 Calling AI with custom tools - starting request")
 
 	// Chamada ao modelo com ferramentas
+	reqStart := time.Now()
 	completion, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Messages: messages,
 		Tools:    tools,
 		Model:    c.model,
 	})
+	reqElapsed := time.Since(reqStart)
+
 	if err != nil {
+		// log com tempo para ajudar debugar
+		log.Error().
+			Err(err).
+			Dur("request_elapsed", reqElapsed).
+			Str("user_id", userID).
+			Msg("❌ failed to get completion with tools")
 		return nil, fmt.Errorf("❌ failed to get completion with tools: %w", err)
 	}
 
-	// Log raw response para debugging
+	// Log raw response para debugging (com durações)
+	totalElapsed := time.Since(startReq)
 	log.Debug().
 		Interface("raw_completion", completion).
+		Dur("request_elapsed", reqElapsed).
+		Dur("total_elapsed", totalElapsed).
 		Msg("📥 Raw AI completion received")
 
 	// Validar se houve choices
