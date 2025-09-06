@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"reflect"
+	"sync"
 
 	"github.com/NextMind-AI/chatbot-go/aiutils"
 	"github.com/NextMind-AI/chatbot-go/elevenlabs"
@@ -264,6 +266,8 @@ func (c *Client) streamResponse(
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
 }
 
+// Observação: adicione "sync" no import list do arquivo se ainda não estiver importado.
+
 func (c *Client) streamResponseWithoutTools(
 	ctx context.Context,
 	config streamingConfig,
@@ -297,8 +301,21 @@ func (c *Client) streamResponseWithoutTools(
 		index int
 	}
 
+	// -------------------------
+	// Configuráveis / tunáveis
+	// -------------------------
+	const (
+		messageQueueBuffer = 3000                 // buffer do canal (aumente se tiver memória)
+		maxBatch           = 16                   // quantos itens enviar num batch (aumentei de 8 para 12)
+		batchTimeout       = 120 * time.Millisecond
+		perSendTimeout     = 4 * time.Second
+		audioConcurrency   = 4                    // quantos envios de áudio paralelos (ajuste conforme CPU/banda)
+		queueRetryDelay    = 120 * time.Millisecond
+		queueRetryTimeout  = 250 * time.Millisecond
+	)
+
 	// buffer generoso para evitar bloqueios do produtor
-	messageQueue := make(chan queuedMsg, 1000)
+	messageQueue := make(chan queuedMsg, messageQueueBuffer)
 	done := make(chan struct{})
 
 	// Goroutine consumidora — batching + timeouts + envio (usa seus helpers sendTextMessage/sendAudioMessage)
@@ -306,15 +323,12 @@ func (c *Client) streamResponseWithoutTools(
 		defer close(done)
 		logger.Info().Msg("Started inline goroutine for sequential message sending (without tools)")
 
-		const (
-			maxBatch      = 8
-			batchTimeout  = 120 * time.Millisecond
-			perSendTimout = 4 * time.Second
-		)
-
 		batch := make([]queuedMsg, 0, maxBatch)
 		timer := time.NewTimer(batchTimeout)
 		defer timer.Stop()
+
+		// semáforo para limitar concorrência de envios de áudio
+		audioSem := make(chan struct{}, audioConcurrency)
 
 		flush := func() {
 			if len(batch) == 0 {
@@ -333,12 +347,12 @@ func (c *Client) streamResponseWithoutTools(
 				}
 			}
 
-			// enviar texto combinado (se houver)
+			// enviar texto combinado (se houver) — único envio por batch
 			if len(textParts) > 0 {
 				combined := strings.Join(textParts, "\n\n")
 				pm := Message{Content: combined, Type: "text"}
 
-				sendCtx, cancel := context.WithTimeout(ctx, perSendTimout)
+				sendCtx, cancel := context.WithTimeout(ctx, perSendTimeout)
 				start := time.Now()
 				if err := c.sendTextMessage(sendCtx, config, pm, -1); err != nil {
 					logger.Error().Err(err).Int("batch_count", len(textParts)).Dur("elapsed", time.Since(start)).Msg("Failed to send text batch")
@@ -348,16 +362,29 @@ func (c *Client) streamResponseWithoutTools(
 				cancel()
 			}
 
-			// enviar áudios individualmente
-			for _, ai := range audioItems {
-				sendCtx, cancel := context.WithTimeout(ctx, perSendTimout)
-				start := time.Now()
-				if err := c.sendAudioMessage(sendCtx, config, ai.msg, ai.index); err != nil {
-					logger.Error().Err(err).Int("message_index", ai.index).Dur("elapsed", time.Since(start)).Msg("Failed to send audio message")
-				} else {
-					logger.Debug().Int("message_index", ai.index).Dur("elapsed", time.Since(start)).Msg("Sent audio message")
+			// enviar áudios individualmente em paralelo limitado
+			if len(audioItems) > 0 {
+				var wg sync.WaitGroup
+				wg.Add(len(audioItems))
+				for _, ai := range audioItems {
+					ai := ai // captura
+					// adquirir semáforo ou bloquear até que haja slot
+					audioSem <- struct{}{}
+					go func() {
+						defer wg.Done()
+						defer func() { <-audioSem }()
+						sendCtx, cancel := context.WithTimeout(ctx, perSendTimeout)
+						start := time.Now()
+						if err := c.sendAudioMessage(sendCtx, config, ai.msg, ai.index); err != nil {
+							logger.Error().Err(err).Int("message_index", ai.index).Dur("elapsed", time.Since(start)).Msg("Failed to send audio message (parallel)")
+						} else {
+							logger.Debug().Int("message_index", ai.index).Dur("elapsed", time.Since(start)).Msg("Sent audio message (parallel)")
+						}
+						cancel()
+					}()
 				}
-				cancel()
+				// aguarda todos concluírem antes de continuar; evita acumular batches sem controle
+				wg.Wait()
 			}
 
 			// reset batch
@@ -404,68 +431,69 @@ func (c *Client) streamResponseWithoutTools(
 	}()
 
 	// produtor: ler stream, parsear JSON incremental, enfileirar mensagens
-	for stream.Next() {
-		evt := stream.Current()
+	ProducerLoop:
+		for stream.Next() {
+			evt := stream.Current()
 
-		// defensive check: evitar panic se não vier nada
-		if evt.Choices == nil || len(evt.Choices) == 0 {
-			continue
-		}
-
-		delta := evt.Choices[0].Delta
-		content := delta.Content
-		if content == "" {
-			continue
-		}
-
-		fullContent.WriteString(content)
-		logger.Debug().Str("chunk_preview", func() string {
-			if len(content) > 200 {
-				return content[:200] + "…"
-			}
-			return content
-		}()).Msg("Appended content chunk (without tools)")
-
-		newMessages := parser.AddChunk(content) // espera-se []Message
-		if len(newMessages) > 0 {
-			logger.Info().Int("new_messages_count", len(newMessages)).Msg("Parser found new messages in chunk")
-		}
-
-		for i, msg := range newMessages {
-			messageIndex := parser.MsgCount - len(newMessages) + i
-			if sentMessages[messageIndex] {
+			// defensive check: evitar panic se não vier nada
+			if evt.Choices == nil || len(evt.Choices) == 0 {
 				continue
 			}
-			sentMessages[messageIndex] = true
-			totalMessagesQueued++
 
-			logger.Info().
-				Int("message_index", messageIndex).
-				Int("total_queued", totalMessagesQueued).
-				Str("type", msg.Type).
-				Msg("Queueing streamed message (without tools)")
+			delta := evt.Choices[0].Delta
+			content := delta.Content
+			if content == "" {
+				continue
+			}
 
-			// Tentativa não-bloqueante com retry curto; evita travar pipeline se queue cheia
-			select {
-			case messageQueue <- queuedMsg{msg: msg, index: messageIndex}:
-				logger.Debug().Int("message_index", messageIndex).Msg("Message enqueued")
-			default:
-				// fila cheia: tentar uma vez por curto tempo, depois dropar para evitar deadlock
-				logger.Warn().Int("message_index", messageIndex).Msg("messageQueue full; retrying briefly")
+			fullContent.WriteString(content)
+			// reduzir log no hot-path — só log quando chunks grandes
+			if len(content) > 512 {
+				logger.Debug().Int("chunk_len", len(content)).Msg("Received large content chunk (without tools)")
+			}
+
+			newMessages := parser.AddChunk(content) // espera-se []Message
+			if len(newMessages) > 0 {
+				logger.Info().Int("new_messages_count", len(newMessages)).Msg("Parser found new messages in chunk")
+			}
+
+			for i, msg := range newMessages {
+				messageIndex := parser.MsgCount - len(newMessages) + i
+				if sentMessages[messageIndex] {
+					continue
+				}
+				sentMessages[messageIndex] = true
+				totalMessagesQueued++
+
+				// Tentativa não-bloqueante com retry curto; evita travar pipeline se queue cheia
 				select {
 				case messageQueue <- queuedMsg{msg: msg, index: messageIndex}:
-					logger.Debug().Msg("Queued on retry")
-				case <-time.After(250 * time.Millisecond):
-					logger.Error().Int("message_index", messageIndex).Msg("Dropped message due to full queue")
-				case <-ctx.Done():
-					logger.Warn().Msg("Context canceled while queuing message; closing queue and exiting")
-					close(messageQueue)
-					<-done
-					return ctx.Err()
+					// enfileirado com sucesso
+				default:
+					// fila cheia: tentar uma vez bloqueando por curto tempo, depois dropar
+					timer := time.NewTimer(queueRetryDelay)
+					select {
+					case messageQueue <- queuedMsg{msg: msg, index: messageIndex}:
+						if !timer.Stop() {
+							<-timer.C
+						}
+					case <-timer.C:
+						// segunda tentativa falhou: dropar mensagem (evitar deadlock)
+						logger.Warn().Int("message_index", messageIndex).Msg("Dropped message due to full queue (without tools)")
+					case <-ctx.Done():
+						timer.Stop()
+						logger.Warn().Msg("Context canceled while queuing message; closing queue and exiting")
+						close(messageQueue)
+						<-done
+						return ctx.Err()
+					}
 				}
 			}
+			// cheque cancelamento de fora do loop também
+			if ctx.Err() != nil {
+				break ProducerLoop
+			}
 		}
-	}
 
 	// stream terminou: fechar fila e esperar consumer encerrar
 	logger.Info().Int("total_messages_queued", totalMessagesQueued).Msg("Stream finished, closing messageQueue (without tools)")
@@ -508,6 +536,7 @@ func shrinkMessagesByBytes(msgs []openai.ChatCompletionMessageParamUnion, maxByt
     return msgs // fallback (não deve acontecer)
 }
 
+// handleToolCalls - versão corrigida para evitar passar map[string]any para openai.ToolMessage
 func (c *Client) handleToolCalls(
 	ctx context.Context,
 	messages []openai.ChatCompletionMessageParamUnion,
@@ -520,258 +549,267 @@ func (c *Client) handleToolCalls(
 		tools = append(tools, tool.Definition)
 	}
 
-	messages = shrinkMessagesByBytes(messages, 60*1024)  //TESTANDO COM O SHRINK
-	// Antes de chamar a API, registre tempo e tamanho do payload
+	// Garantir histórico dentro do limite
+	messages = shrinkMessagesByBytes(messages, 60*1024) // corta histórico se precisar
+
 	startReq := time.Now()
-	payloadBytes, _ := json.Marshal(messages) // size aproximado do request
+	payloadBytes, _ := json.Marshal(messages)
 	log.Info().
 		Str("user_id", userID).
 		Int("tool_count", len(tools)).
 		Int("payload_bytes", len(payloadBytes)).
 		Msg("🔧 Calling AI with custom tools - starting request")
 
-	// Chamada ao modelo com ferramentas
+	// Chamada streaming
 	reqStart := time.Now()
-	completion, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+	stream := c.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
 		Messages: messages,
 		Tools:    tools,
 		Model:    c.model,
 	})
-	reqElapsed := time.Since(reqStart)
-
-	if err != nil {
-		// log com tempo para ajudar debugar
-		log.Error().
-			Err(err).
-			Dur("request_elapsed", reqElapsed).
-			Str("user_id", userID).
-			Msg("❌ failed to get completion with tools")
-		return nil, fmt.Errorf("❌ failed to get completion with tools: %w", err)
+	if stream == nil {
+		return nil, fmt.Errorf("failed to create streaming request: stream is nil")
 	}
+	defer func() { _ = stream.Close() }()
 
-	// Log raw response para debugging (com durações)
-	totalElapsed := time.Since(startReq)
-	log.Debug().
-		Interface("raw_completion", completion).
-		Dur("request_elapsed", reqElapsed).
-		Dur("total_elapsed", totalElapsed).
-		Msg("📥 Raw AI completion received")
+	var finalMessage openai.ChatCompletionMessage
+	var collectedContent strings.Builder
 
-	// Validar se houve choices
-	if len(completion.Choices) == 0 {
-		log.Warn().Str("user_id", userID).Msg("⚠️ AI response had no choices")
-		return messages, nil
-	}
-
-	// 1) try SDK tool-calls (normal flow)
-	sdkToolCalls := completion.Choices[0].Message.ToolCalls
-
-	// 2) fallback: se SDK não apresentou tool calls, tentar extrair com helper
-	var fallbackToolCalls []aiutils.ToolCall
-	if len(sdkToolCalls) == 0 {
-		tcs, _, err := aiutils.ExtractToolCallsFromCompletion(completion)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("user_id", userID).
-				Msg("❌ Failed to extract tool_calls from raw completion (fallback)")
-		} else if len(tcs) > 0 {
-			fallbackToolCalls = tcs
-			log.Info().
-				Str("user_id", userID).
-				Int("found_tool_calls", len(fallbackToolCalls)).
-				Msg("⚠️ Found tool_calls in raw completion (fallback)")
-			// opcional: injetar JSON corrigido de volta no completion (ver abaixo)
+	// Ler eventos do stream
+	for stream.Next() {
+		chunk := stream.Current()
+		if len(chunk.Choices) == 0 {
+			continue
 		}
-	}
+		choice := chunk.Choices[0]
+		delta := choice.Delta
+		// pular se não tiver nada útil
+		if delta.Content == "" && delta.Role == "" && len(delta.ToolCalls) == 0 {
+			continue
+		}
 
-	// se nenhum caminho trouxe tool calls, seguir normalmente
-	if len(sdkToolCalls) == 0 && len(fallbackToolCalls) == 0 {
-		log.Info().
-			Str("user_id", userID).
-			Msg("ℹ️ No tool calls made, proceeding with streaming")
-		return messages, nil
-	}
+		if delta.Content != "" {
+			collectedContent.WriteString(delta.Content)
+			fmt.Print(delta.Content)
+		}
 
-	// Adicionar a mensagem do modelo às mensagens atualizadas (mantendo seu comportamento)
-	updatedMessages := append(messages, completion.Choices[0].Message.ToParam())
-
-	// ---------------------------------------------------------------------
-	// Processar tool calls vindos do SDK (se houver)
-	// ---------------------------------------------------------------------
-	if len(sdkToolCalls) > 0 {
-		for _, toolCall := range sdkToolCalls {
-			log.Info().
-				Str("user_id", userID).
-				Str("tool_name", toolCall.Function.Name).
-				Str("tool_id", toolCall.ID).
-				Msg("🔄 Processing tool call")
-
-			// Procurar handler correspondente
-			var handler ToolHandler
-			for _, tool := range c.tools {
-				if tool.Definition.Function.Name == toolCall.Function.Name {
-					handler = tool.Handler
-					break
+		// atribuição robusta do Role (reflection)
+		if delta.Role != "" {
+			rv := reflect.ValueOf(&finalMessage).Elem()
+			f := rv.FieldByName("Role")
+			if f.IsValid() && f.CanSet() {
+				switch f.Kind() {
+				case reflect.String:
+					f.SetString(delta.Role)
+				case reflect.Ptr:
+					if f.Type().Elem().Kind() == reflect.String {
+						s := delta.Role
+						f.Set(reflect.ValueOf(&s))
+					} else {
+						if reflect.TypeOf(delta.Role).AssignableTo(f.Type()) {
+							f.Set(reflect.ValueOf(delta.Role))
+						}
+					}
+				default:
+					if reflect.TypeOf(delta.Role).AssignableTo(f.Type()) {
+						f.Set(reflect.ValueOf(delta.Role))
+					}
 				}
 			}
+		}
 
-			if handler == nil {
-				log.Error().
-					Str("user_id", userID).
-					Str("tool_name", toolCall.Function.Name).
-					Msg("❌ No handler found for tool")
+		// tool calls: construir ToolCall entries
+		for _, tc := range delta.ToolCalls {
+			if tc.ID == "" || tc.Type == "" || tc.Function.Name == "" {
+				log.Debug().Interface("tool_call", tc).Msg("skipping malformed tool call chunk")
 				continue
 			}
 
-			// Log argumentos crus
-			log.Debug().
-				Str("user_id", userID).
-				Str("tool_name", toolCall.Function.Name).
-				Str("raw_arguments", toolCall.Function.Arguments).
-				Msg("📦 Received raw tool arguments")
-
-			// Parse dos argumentos (string JSON)
-			var args map[string]any
-			if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-				// tente tolerância (se estiver escapado, double-encoded etc) usando helper local se quiser,
-				// mas por simplicidade mantenho seu comportamento atual.
-				log.Error().
-					Err(err).
-					Str("user_id", userID).
-					Str("tool_name", toolCall.Function.Name).
-					Msg("❌ Failed to parse tool arguments (invalid JSON)")
-				continue
+			// Construir item sem o Type (assign via reflection se necessário)
+			item := openai.ChatCompletionMessageToolCall{
+				ID: tc.ID,
+				Function: openai.ChatCompletionMessageToolCallFunction{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments, // já é string no seu SDK
+				},
 			}
 
-			log.Debug().
-				Str("user_id", userID).
-				Str("tool_name", toolCall.Function.Name).
-				Interface("parsed_args", args).
-				Msg("✅ Parsed tool arguments")
-
-			// // Chamar handler
-			// result, err := handler(ctx, args)
-			// if err != nil {
-			// 	log.Error().
-			// 		Err(err).
-			// 		Str("user_id", userID).
-			// 		Str("tool_name", toolCall.Function.Name).
-			// 		Msg("❌ Tool handler returned error")
-			// 	result = fmt.Sprintf("Error: %s", err.Error())
-			// }
-
-			result, err := handler(ctx, args)
-			if err != nil {
-				userMsg := err.Error() // você pode formatar mais amigavelmente aqui
-				log.Error().
-					Err(err).
-					Str("user_id", userID).
-					Str("tool_name", toolCall.Function.Name).
-					Msg("❌ Tool handler returned error")
-				// Retorna erro especial com mensagem pronta para o usuário
-				return nil, &aiutils.ToolCallUserError{UserMessage: userMsg, Err: err}
-			}
-
-			log.Info().
-				Str("user_id", userID).
-				Str("tool_name", toolCall.Function.Name).
-				Str("result", result).
-				Msg("✅ Tool call completed")
-
-			// Append do resultado como ToolMessage
-			updatedMessages = append(updatedMessages, openai.ToolMessage(result, toolCall.ID))
-		}
-	}
-
-	// ---------------------------------------------------------------------
-	// Processar tool calls extraídos via fallback (se houver)
-	// ---------------------------------------------------------------------
-	if len(fallbackToolCalls) > 0 {
-		for _, tc := range fallbackToolCalls {
-			id := tc.ID
-			name := tc.Name
-
-			log.Info().
-				Str("user_id", userID).
-				Str("tool_name", name).
-				Str("tool_id", id).
-				Msg("🔄 Processing fallback tool call (will invoke handler directly)")
-
-			// encontrar handler
-			var handler ToolHandler
-			for _, tool := range c.tools {
-				// tente duas formas de comparação para evitar mismatch (ajuste conforme seu Definition)
-				if tool.Definition.Function.Name == name || tool.Definition.Function.Name == strings.ToLower(name) || tool.Definition.Function.Name == strings.TrimSpace(name) {
-					handler = tool.Handler
-					break
-				}
-			}
-			if handler == nil {
-				// tentar também comparar pelo "title" / "name" se seu Definition tiver outro campo
-				for _, tool := range c.tools {
-					if tool.Definition.Function.Name == name || strings.EqualFold(tool.Definition.Function.Name, name) {
-						handler = tool.Handler
-						break
+			// Atribuir Type de forma robusta (string, *string ou tipo definido)
+			rv := reflect.ValueOf(&item).Elem()
+			f := rv.FieldByName("Type")
+			if f.IsValid() && f.CanSet() {
+				switch f.Kind() {
+				case reflect.String:
+					f.SetString(tc.Type)
+				case reflect.Ptr:
+					if f.Type().Elem().Kind() == reflect.String {
+						s := tc.Type
+						f.Set(reflect.ValueOf(&s))
+					} else {
+						if reflect.TypeOf(tc.Type).AssignableTo(f.Type()) {
+							f.Set(reflect.ValueOf(tc.Type))
+						}
+					}
+				default:
+					if reflect.TypeOf(tc.Type).AssignableTo(f.Type()) {
+						f.Set(reflect.ValueOf(tc.Type))
 					}
 				}
 			}
 
-			if handler == nil {
-				log.Error().
-					Str("user_id", userID).
-					Str("tool_name", name).
-					Msg("❌ No handler found for tool (fallback)")
-				continue
-			}
+			finalMessage.ToolCalls = append(finalMessage.ToolCalls, item)
+		}
+	}
 
-			// preparar args: tc.Arguments já é map[string]interface{} na maioria dos casos
-			args := make(map[string]any)
-			if tc.Arguments != nil {
-				for k, v := range tc.Arguments {
-					args[k] = v
-				}
-			}
+	// checar erro do stream
+	if stream.Err() != nil {
+		return nil, stream.Err()
+	}
 
-			// chamar handler SINCRO (assim como no fluxo normal)
-			result, err := handler(ctx, args)
-			if err != nil {
-				userMsg := err.Error()
+	reqElapsed := time.Since(reqStart)
+
+	finalMessage.Content = collectedContent.String()
+
+	totalElapsed := time.Since(startReq)
+	log.Debug().
+		Interface("final_message", finalMessage).
+		Dur("request_elapsed", reqElapsed).
+		Dur("total_elapsed", totalElapsed).
+		Msg("📥 Final AI message assembled from stream")
+
+	updatedMessages := append(messages, finalMessage.ToParam())
+
+	// se não tem tool calls, retorna
+	if len(finalMessage.ToolCalls) == 0 {
+		log.Info().
+			Str("user_id", userID).
+			Msg("ℹ️ No tool calls made, proceeding with streaming")
+		return updatedMessages, nil
+	}
+
+	// Para cada tool call: encontrar handler, executar e anexar ToolMessage
+	for _, toolCall := range finalMessage.ToolCalls {
+		log.Info().
+			Str("user_id", userID).
+			Str("tool_name", toolCall.Function.Name).
+			Str("tool_id", toolCall.ID).
+			Msg("🔄 Processing tool call")
+
+		// encontrar handler
+		var handler ToolHandler
+		for _, tool := range c.tools {
+			if tool.Definition.Function.Name == toolCall.Function.Name {
+				handler = tool.Handler
+				break
+			}
+		}
+
+		if handler == nil {
+			log.Error().
+				Str("user_id", userID).
+				Str("tool_name", toolCall.Function.Name).
+				Msg("❌ No handler found for tool")
+			failPayload := map[string]any{
+				"error": "no handler found for tool: " + toolCall.Function.Name,
+			}
+			// converter para string JSON antes de passar ao ToolMessage
+			if b, err := json.Marshal(failPayload); err == nil {
+				updatedMessages = append(updatedMessages, openai.ToolMessage(string(b), toolCall.ID))
+			} else {
+				updatedMessages = append(updatedMessages, openai.ToolMessage("no handler found", toolCall.ID))
+			}
+			continue
+		}
+
+		// parse argumentos (arguments é string JSON)
+		var args map[string]any
+		if toolCall.Function.Arguments != "" {
+			if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 				log.Error().
 					Err(err).
 					Str("user_id", userID).
-					Str("tool_name", name).
-					Msg("❌ Tool handler returned error (fallback)")
-				return nil, &aiutils.ToolCallUserError{UserMessage: userMsg, Err: err}
+					Str("tool_name", toolCall.Function.Name).
+					Msg("❌ Failed to parse tool arguments")
+				warnPayload := map[string]any{
+					"error":    "failed to parse tool arguments",
+					"rawArgs":  toolCall.Function.Arguments,
+					"toolName": toolCall.Function.Name,
+				}
+				if b, err := json.Marshal(warnPayload); err == nil {
+					updatedMessages = append(updatedMessages, openai.ToolMessage(string(b), toolCall.ID))
+				} else {
+					updatedMessages = append(updatedMessages, openai.ToolMessage("failed to parse tool args", toolCall.ID))
+				}
+				continue
+			}
+		} else {
+			args = map[string]any{}
+		}
+
+		// executar handler com timeout
+		handlerCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		resultCh := make(chan any, 1)
+		errCh := make(chan error, 1)
+
+		go func() {
+			res, err := handler(handlerCtx, args)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			resultCh <- res
+		}()
+
+		var result any
+		select {
+		case <-handlerCtx.Done():
+			cancel()
+			log.Error().
+				Str("user_id", userID).
+				Str("tool_name", toolCall.Function.Name).
+				Msg("❌ Tool handler timed out")
+			return nil, fmt.Errorf("tool handler timed out: %s", toolCall.Function.Name)
+		case err := <-errCh:
+			cancel()
+			userMsg := err.Error()
+			log.Error().
+				Err(err).
+				Str("user_id", userID).
+				Str("tool_name", toolCall.Function.Name).
+				Msg("❌ Tool handler returned error")
+			return nil, &aiutils.ToolCallUserError{UserMessage: userMsg, Err: err}
+		case r := <-resultCh:
+			result = r
+			cancel()
+		}
+
+		// --- Converter o resultado para um tipo aceito por openai.ToolMessage ---
+		// aceitamos:
+		//  - string
+		//  - []openai.ChatCompletionContentPartTextParam
+		// caso contrário, serializamos para JSON string.
+
+		switch v := result.(type) {
+		case string:
+			updatedMessages = append(updatedMessages, openai.ToolMessage(v, toolCall.ID))
+		case []openai.ChatCompletionContentPartTextParam:
+			updatedMessages = append(updatedMessages, openai.ToolMessage(v, toolCall.ID))
+		case []byte:
+			updatedMessages = append(updatedMessages, openai.ToolMessage(string(v), toolCall.ID))
+		default:
+			// tentar serializar qualquer coisa para JSON
+			if b, err := json.Marshal(v); err == nil {
+				updatedMessages = append(updatedMessages, openai.ToolMessage(string(b), toolCall.ID))
 			} else {
-				log.Info().
-					Str("user_id", userID).
-					Str("tool_name", name).
-					Str("result", result).
-					Msg("✅ Fallback tool call completed")
+				// fallback — passar uma string simples
+				updatedMessages = append(updatedMessages, openai.ToolMessage("tool returned non-serializable result", toolCall.ID))
 			}
-
-			// append do resultado como ToolMessage (mesma abordagem do fluxo normal)
-			// se id for vazio, use um id gerado (ex: "fallback_<name>") para consistência
-			if id == "" {
-				id = "fallback_" + name
-			}
-			updatedMessages = append(updatedMessages, openai.ToolMessage(result, id))
-
-			// OPCIONAL: se quiser que outros pontos do sistema vejam esse tool call como
-			// se o modelo tivesse retornado uma function_call, você pode reescrever
-			// completion.Choices[0].Message.Content com o JSON normalizado (corr string)
-			// — faça isso apenas se a struct permitir atribuição direta:
-			//
-			// if completion.Choices != nil && len(completion.Choices) > 0 {
-			//     // exemplo: se Message.Content for *string ou string — ajuste conforme SDK
-			//     completion.Choices[0].Message.Content = correctedJSON
-			// }
 		}
 	}
 
 	return updatedMessages, nil
 }
+
 
 // messageWithIndex wraps a message with its index for ordered processing
 type messageWithIndex struct {
