@@ -128,8 +128,8 @@ func (c *Client) DetermineSleepTime(
 		sleepSeconds := int(seconds)
 		if sleepSeconds < 5 {
 			sleepSeconds = 5
-		} else if sleepSeconds > 25 {
-			sleepSeconds = 25
+		} else if sleepSeconds > 20 {
+			sleepSeconds = 20
 		}
 
 		log.Info().
