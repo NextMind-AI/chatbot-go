@@ -266,7 +266,6 @@ func (c *Client) streamResponse(
 	return c.finalizeStreamingResponse(config.userID, fullContent.String(), config.redisClient)
 }
 
-// Observação: adicione "sync" no import list do arquivo se ainda não estiver importado.
 
 func (c *Client) streamResponseWithoutTools(
 	ctx context.Context,
@@ -550,7 +549,7 @@ func (c *Client) handleToolCalls(
 	}
 
 	// Garantir histórico dentro do limite
-	messages = shrinkMessagesByBytes(messages, 60*1024) // corta histórico se precisar
+	messages = shrinkMessagesByBytes(messages, 1024) // corta histórico se precisar
 
 	startReq := time.Now()
 	payloadBytes, _ := json.Marshal(messages)
@@ -570,6 +569,7 @@ func (c *Client) handleToolCalls(
 	if stream == nil {
 		return nil, fmt.Errorf("failed to create streaming request: stream is nil")
 	}
+	log.Info().Msg("Acabou o Streaming!")
 	defer func() { _ = stream.Close() }()
 
 	var finalMessage openai.ChatCompletionMessage
